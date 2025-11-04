@@ -1,0 +1,16 @@
+.inventory-page {
+  padding: 2rem;
+  min-height: calc(100dvh - 40px);
+}
+
+.inventory-page .page-header {
+  margin-bottom: 2rem;
+}
+
+.inventory-page .page-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
