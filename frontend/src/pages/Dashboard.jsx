@@ -193,11 +193,13 @@ const Dashboard = () => {
       {/* Overview Metrics */}
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <VscGraphLine style={{ color: "#374151", fontSize: "1.125rem" }} />
+          <div className="stat-card-header">
+            <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+              <VscGraphLine style={{ color: "#374151", fontSize: "1.125rem" }} />
+            </div>
+            <h3>Traffic</h3>
           </div>
           <div className="stat-content">
-            <h3>Traffic</h3>
             <p className="stat-number">
               {formatNumber(analytics?.activeUsers)}
             </p>
@@ -219,17 +221,19 @@ const Dashboard = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <PiKeyReturnFill
-              style={{
-                color: "#374151",
-                fontSize: "1.125rem",
-                transform: "scaleX(-1)",
-              }}
-            />
+          <div className="stat-card-header">
+            <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+              <PiKeyReturnFill
+                style={{
+                  color: "#374151",
+                  fontSize: "1.125rem",
+                  transform: "scaleX(-1)",
+                }}
+              />
+            </div>
+            <h3>Start</h3>
           </div>
           <div className="stat-content">
-            <h3>Start</h3>
             <p className="stat-number">
               {(() => {
                 const buildMyBoxPage = topPages.find((page) =>
@@ -259,13 +263,15 @@ const Dashboard = () => {
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <AiFillDollarCircle
-              style={{ color: "#374151", fontSize: "1.125rem" }}
-            />
+          <div className="stat-card-header">
+            <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+              <AiFillDollarCircle
+                style={{ color: "#374151", fontSize: "1.125rem" }}
+              />
+            </div>
+            <h3>Conversions</h3>
           </div>
           <div className="stat-content">
-            <h3>Conversions</h3>
             <p className="stat-number">
               {formatNumber(analytics?.conversions)}
             </p>
@@ -281,11 +287,13 @@ const Dashboard = () => {
             ),
           }}
         >
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <LuAlarmClock style={{ color: "#374151", fontSize: "1.125rem" }} />
+          <div className="stat-card-header">
+            <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+              <LuAlarmClock style={{ color: "#374151", fontSize: "1.125rem" }} />
+            </div>
+            <h3>Avg. Duration</h3>
           </div>
           <div className="stat-content">
-            <h3>Avg. Duration</h3>
             <p className="stat-number">
               {formatDuration(analytics?.avgSessionDuration)}
             </p>
@@ -321,11 +329,13 @@ const Dashboard = () => {
             ),
           }}
         >
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <IoMdExit style={{ color: "#374151", fontSize: "1.125rem" }} />
+          <div className="stat-card-header">
+            <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+              <IoMdExit style={{ color: "#374151", fontSize: "1.125rem" }} />
+            </div>
+            <h3>Bounce Rate</h3>
           </div>
           <div className="stat-content">
-            <h3>Bounce Rate</h3>
             <p className="stat-number">{analytics?.bounceRate?.toFixed(1)}%</p>
             <div className="benchmark-data">
               <div className="benchmark-item">

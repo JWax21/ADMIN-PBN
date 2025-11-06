@@ -35,6 +35,12 @@
   max-width: 19%;
 }
 
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .stat-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -58,11 +64,11 @@
   flex-direction: column;
 }
 
-.stat-content h3 {
+.stat-card-header h3 {
   font-size: 0.7rem;
   font-weight: 500;
   color: #6b7280;
-  margin: 0 0 0.25rem 0;
+  margin: 0;
 }
 
 .stat-number {
