@@ -209,7 +209,18 @@ const Dashboard = () => {
       <div className="dashboard-content">
         {/* Daily Trend */}
         <div className="card trend-card">
-          <h2>Daily Trend</h2>
+          <div className="trend-header">
+            <h2>Daily Trend</h2>
+            {dailyTrend.length > 0 && (
+              <div className="today-box">
+                <span className="today-label">Today</span>
+                <span className="today-value">
+                  {formatNumber(dailyTrend[dailyTrend.length - 1]?.users || 0)}
+                </span>
+                <span className="today-subtitle">visitors</span>
+              </div>
+            )}
+          </div>
           <div className="trend-chart">
             {dailyTrend.length > 0 ? (
               <div className="trend-chart-container">
