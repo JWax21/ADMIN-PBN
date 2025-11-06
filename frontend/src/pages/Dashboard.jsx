@@ -194,7 +194,7 @@ const Dashboard = () => {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <VscGraphLine style={{ color: "#374151", fontSize: "1.25rem" }} />
+            <VscGraphLine style={{ color: "#374151", fontSize: "1.125rem" }} />
           </div>
           <div className="stat-content">
             <h3>Traffic</h3>
@@ -223,7 +223,7 @@ const Dashboard = () => {
             <PiKeyReturnFill
               style={{
                 color: "#374151",
-                fontSize: "1.25rem",
+                fontSize: "1.125rem",
                 transform: "scaleX(-1)",
               }}
             />
@@ -258,6 +258,20 @@ const Dashboard = () => {
           </div>
         </div>
 
+        <div className="stat-card">
+          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
+            <AiFillDollarCircle
+              style={{ color: "#374151", fontSize: "1.125rem" }}
+            />
+          </div>
+          <div className="stat-content">
+            <h3>Conversions</h3>
+            <p className="stat-number">
+              {formatNumber(analytics?.conversions)}
+            </p>
+          </div>
+        </div>
+
         <div
           className="stat-card"
           style={{
@@ -268,7 +282,7 @@ const Dashboard = () => {
           }}
         >
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <LuAlarmClock style={{ color: "#374151", fontSize: "1.25rem" }} />
+            <LuAlarmClock style={{ color: "#374151", fontSize: "1.125rem" }} />
           </div>
           <div className="stat-content">
             <h3>Avg. Duration</h3>
@@ -308,7 +322,7 @@ const Dashboard = () => {
           }}
         >
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <IoMdExit style={{ color: "#374151", fontSize: "1.25rem" }} />
+            <IoMdExit style={{ color: "#374151", fontSize: "1.125rem" }} />
           </div>
           <div className="stat-content">
             <h3>Bounce Rate</h3>
@@ -335,20 +349,6 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-
-        <div className="stat-card">
-          <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <AiFillDollarCircle
-              style={{ color: "#374151", fontSize: "1.25rem" }}
-            />
-          </div>
-          <div className="stat-content">
-            <h3>Conversions</h3>
-            <p className="stat-number">
-              {formatNumber(analytics?.conversions)}
-            </p>
-          </div>
-        </div>
       </div>
 
       <div className="dashboard-content">
@@ -359,7 +359,8 @@ const Dashboard = () => {
             {dailyTrend.length > 0 && (
               <div className="today-box">
                 <span className="today-text">
-                  Visitors: {formatNumber(dailyTrend[dailyTrend.length - 1]?.users || 0)}
+                  Visitors:{" "}
+                  {formatNumber(dailyTrend[dailyTrend.length - 1]?.users || 0)}
                 </span>
               </div>
             )}
