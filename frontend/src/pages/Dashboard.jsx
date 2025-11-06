@@ -15,7 +15,7 @@ const Dashboard = () => {
   const [dailyTrend, setDailyTrend] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState("30daysAgo");
+  const [dateRange, setDateRange] = useState("7daysAgo");
   const [hoveredBar, setHoveredBar] = useState(null);
 
   useEffect(() => {
@@ -175,7 +175,7 @@ const Dashboard = () => {
           <p>Google Analytics for cleanboxsnacks.com</p>
         </div>
         <div className="date-range-selector">
-          <label htmlFor="date-range">Time Period:</label>
+          <label htmlFor="date-range">Period:</label>
           <select
             id="date-range"
             value={dateRange}
@@ -204,11 +204,15 @@ const Dashboard = () => {
             <div className="sub-metrics">
               <div className="sub-metric-item">
                 <span className="sub-metric-label">Sessions:</span>
-                <span className="sub-metric-value">{formatNumber(analytics?.sessions)}</span>
+                <span className="sub-metric-value">
+                  {formatNumber(analytics?.sessions)}
+                </span>
               </div>
               <div className="sub-metric-item">
                 <span className="sub-metric-label">Page Views:</span>
-                <span className="sub-metric-value">{formatNumber(analytics?.pageViews)}</span>
+                <span className="sub-metric-value">
+                  {formatNumber(analytics?.pageViews)}
+                </span>
               </div>
             </div>
           </div>
@@ -228,14 +232,14 @@ const Dashboard = () => {
             <h3>Start</h3>
             <p className="stat-number">
               {(() => {
-                const buildMyBoxPage = topPages.find(page => 
-                  page.path.includes('/build-my-box')
+                const buildMyBoxPage = topPages.find((page) =>
+                  page.path.includes("/build-my-box")
                 );
                 const buildMyBoxVisitors = buildMyBoxPage?.views || 0;
-                const conversionRate = analytics?.activeUsers 
-                  ? (buildMyBoxVisitors / analytics.activeUsers) * 100 
+                const conversionRate = analytics?.activeUsers
+                  ? (buildMyBoxVisitors / analytics.activeUsers) * 100
                   : 0;
-                return conversionRate.toFixed(1) + '%';
+                return conversionRate.toFixed(1) + "%";
               })()}
             </p>
             <div className="sub-metrics">
@@ -243,8 +247,8 @@ const Dashboard = () => {
                 <span className="sub-metric-label">Visitors:</span>
                 <span className="sub-metric-value">
                   {(() => {
-                    const buildMyBoxPage = topPages.find(page => 
-                      page.path.includes('/build-my-box')
+                    const buildMyBoxPage = topPages.find((page) =>
+                      page.path.includes("/build-my-box")
                     );
                     return formatNumber(buildMyBoxPage?.views || 0);
                   })()}
@@ -354,11 +358,9 @@ const Dashboard = () => {
             <h2>Daily Trend</h2>
             {dailyTrend.length > 0 && (
               <div className="today-box">
-                <span className="today-label">Today</span>
-                <span className="today-value">
-                  {formatNumber(dailyTrend[dailyTrend.length - 1]?.users || 0)}
+                <span className="today-text">
+                  Visitors: {formatNumber(dailyTrend[dailyTrend.length - 1]?.users || 0)}
                 </span>
-                <span className="today-subtitle">visitors</span>
               </div>
             )}
           </div>
