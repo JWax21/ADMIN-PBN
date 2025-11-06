@@ -194,7 +194,7 @@ const Dashboard = () => {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <VscGraphLine style={{ color: "#374151", fontSize: "1.5rem" }} />
+            <VscGraphLine style={{ color: "#374151", fontSize: "1.25rem" }} />
           </div>
           <div className="stat-content">
             <h3>Active Users</h3>
@@ -209,7 +209,7 @@ const Dashboard = () => {
             <PiKeyReturnFill
               style={{
                 color: "#374151",
-                fontSize: "1.5rem",
+                fontSize: "1.25rem",
                 transform: "scaleY(-1)",
               }}
             />
@@ -223,7 +223,7 @@ const Dashboard = () => {
         <div className="stat-card">
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
             <MdOutlineFindInPage
-              style={{ color: "#374151", fontSize: "1.5rem" }}
+              style={{ color: "#374151", fontSize: "1.25rem" }}
             />
           </div>
           <div className="stat-content">
@@ -242,7 +242,7 @@ const Dashboard = () => {
           }}
         >
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <LuAlarmClock style={{ color: "#374151", fontSize: "1.5rem" }} />
+            <LuAlarmClock style={{ color: "#374151", fontSize: "1.25rem" }} />
           </div>
           <div className="stat-content">
             <h3>Avg. Duration</h3>
@@ -282,7 +282,7 @@ const Dashboard = () => {
           }}
         >
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
-            <IoMdExit style={{ color: "#374151", fontSize: "1.5rem" }} />
+            <IoMdExit style={{ color: "#374151", fontSize: "1.25rem" }} />
           </div>
           <div className="stat-content">
             <h3>Bounce Rate</h3>
@@ -313,7 +313,7 @@ const Dashboard = () => {
         <div className="stat-card">
           <div className="stat-icon" style={{ backgroundColor: "#e5e7eb" }}>
             <AiFillDollarCircle
-              style={{ color: "#374151", fontSize: "1.5rem" }}
+              style={{ color: "#374151", fontSize: "1.25rem" }}
             />
           </div>
           <div className="stat-content">
