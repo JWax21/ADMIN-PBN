@@ -32,7 +32,7 @@ const Layout = () => {
             <span className="nav-icon">
               <FaUsers />
             </span>
-            Members
+            Subscribers
           </NavLink>
           <NavLink to="/orders" className="nav-link">
             <span className="nav-icon">
