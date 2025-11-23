@@ -7,11 +7,12 @@ import {
 } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Layout from "./components/Layout";
-import Dashboard from "./pages/Dashboard";
-import Users from "./pages/Users";
-import Orders from "./pages/Orders";
-import SnackCatalogue from "./pages/SnackCatalogue";
-import Inventory from "./pages/Inventory";
+import Visitors from "./pages/Visitors";
+import PageIndex from "./pages/PageIndex";
+import PageRankings from "./pages/PageRankings";
+import TopPages from "./pages/TopPages";
+import TrafficSources from "./pages/TrafficSources";
+import SearchPerformance from "./pages/SearchPerformance";
 import Login from "./pages/Login";
 import { supabase } from "./config/supabase";
 import "./App.css";
@@ -58,11 +59,13 @@ function App() {
           path="/"
           element={session ? <Layout /> : <Navigate to="/login" />}
         >
-          <Route index element={<Dashboard />} />
-          <Route path="users" element={<Users />} />
-          <Route path="orders" element={<Orders />} />
-          <Route path="snack-catalogue" element={<SnackCatalogue />} />
-          <Route path="inventory" element={<Inventory />} />
+          <Route index element={<Navigate to="/visitors" replace />} />
+          <Route path="visitors" element={<Visitors />} />
+          <Route path="search-performance" element={<SearchPerformance />} />
+          <Route path="traffic-sources" element={<TrafficSources />} />
+          <Route path="page-index" element={<PageIndex />} />
+          <Route path="page-rankings" element={<PageRankings />} />
+          <Route path="top-pages" element={<TopPages />} />
         </Route>
       </Routes>
     </Router>

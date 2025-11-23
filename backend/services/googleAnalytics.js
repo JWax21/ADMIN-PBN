@@ -175,6 +175,52 @@ export const getTopPages = async (
 };
 
 /**
+ * Get average session duration for all pages
+ * @param {string} startDate - Start date in YYYY-MM-DD format
+ * @param {string} endDate - End date in YYYY-MM-DD format
+ * @returns {Object} Map of pagePath -> averageSessionDuration in seconds
+ */
+export const getPageAvgDurations = async (
+  startDate = "30daysAgo",
+  endDate = "today"
+) => {
+  if (!analyticsDataClient) {
+    throw new Error("Analytics client not initialized");
+  }
+
+  const propertyId = process.env.GA_PROPERTY_ID;
+
+  try {
+    const response = await analyticsDataClient.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [
+          {
+            startDate,
+            endDate,
+          },
+        ],
+        dimensions: [{ name: "pagePath" }],
+        metrics: [{ name: "averageSessionDuration" }],
+        limit: 10000, // Get as many pages as possible
+      },
+    });
+
+    const durationMap = {};
+    response.data.rows?.forEach((row) => {
+      const pagePath = row.dimensionValues[0].value;
+      const avgDuration = parseFloat(row.metricValues[0].value) || 0;
+      durationMap[pagePath] = avgDuration;
+    });
+
+    return durationMap;
+  } catch (error) {
+    console.error("Error fetching page average durations:", error);
+    throw error;
+  }
+};
+
+/**
  * Get traffic by source/medium
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
@@ -283,11 +329,19 @@ export const getDailyTrend = async (
   }
 };
 
+/**
+ * Get the analytics client (for use by other services)
+ */
+export const getAnalyticsClient = () => {
+  return analyticsDataClient;
+};
+
 export default {
   initializeAnalytics,
   getOverviewMetrics,
   getTopPages,
   getTrafficSources,
   getDailyTrend,
+  getAnalyticsClient,
 };
 

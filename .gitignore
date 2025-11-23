@@ -30,4 +30,8 @@ Thumbs.db
 dist/
 build/
 
+# Google Analytics service account (sensitive)
+backend/ga-service-account.json
+**/ga-service-account.json
+
 

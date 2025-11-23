@@ -15,6 +15,21 @@ import {
   getTrafficSources,
   getDailyTrend,
 } from "./services/googleAnalytics.js";
+import {
+  getVisitorsList,
+  getVisitorDetails,
+  getDailyVisitorTrends,
+  getVisitorsByPage,
+} from "./services/visitorAnalytics.js";
+import {
+  initializeSearchConsole,
+  getSearchPerformance,
+  getTopQueries,
+  getTopPages as getSearchTopPages,
+  getTopCountries,
+  getPageIndexStatus,
+  getPageRankings,
+} from "./services/googleSearchConsole.js";
 
 // Get current directory in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +77,9 @@ if (mongoUri) {
 
 // Initialize Google Analytics
 initializeAnalytics();
+
+// Initialize Google Search Console
+initializeSearchConsole();
 
 // Middleware
 app.use(helmet());
@@ -158,6 +176,245 @@ app.get("/api/analytics/daily-trend", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching daily trend:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// ==================== Google Search Console Endpoints ====================
+
+// Get search performance overview
+app.get("/api/search-console/performance", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const performance = await getSearchPerformance(startDate, endDate);
+
+    res.json({
+      success: true,
+      data: performance,
+    });
+  } catch (error) {
+    console.error("Error fetching search performance:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get top search queries
+app.get("/api/search-console/top-queries", async (req, res) => {
+  try {
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 10,
+    } = req.query;
+    const queries = await getTopQueries(startDate, endDate, parseInt(limit));
+
+    res.json({
+      success: true,
+      data: queries,
+    });
+  } catch (error) {
+    console.error("Error fetching top queries:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get top pages from search
+app.get("/api/search-console/top-pages", async (req, res) => {
+  try {
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 10,
+    } = req.query;
+    const pages = await getSearchTopPages(startDate, endDate, parseInt(limit));
+
+    res.json({
+      success: true,
+      data: pages,
+    });
+  } catch (error) {
+    console.error("Error fetching search top pages:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get top countries from search
+app.get("/api/search-console/top-countries", async (req, res) => {
+  try {
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 10,
+    } = req.query;
+    const countries = await getTopCountries(startDate, endDate, parseInt(limit));
+
+    res.json({
+      success: true,
+      data: countries,
+    });
+  } catch (error) {
+    console.error("Error fetching top countries:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get page index status
+app.get("/api/search-console/page-index", async (req, res) => {
+  try {
+    const { limit = 1000 } = req.query;
+    const pages = await getPageIndexStatus(parseInt(limit));
+
+    res.json({
+      success: true,
+      data: pages,
+    });
+  } catch (error) {
+    console.error("Error fetching page index status:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get page rankings (queries we're showing up for)
+app.get("/api/search-console/page-rankings", async (req, res) => {
+  try {
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 1000,
+    } = req.query;
+    const rankings = await getPageRankings(startDate, endDate, parseInt(limit));
+
+    res.json({
+      success: true,
+      data: rankings,
+    });
+  } catch (error) {
+    console.error("Error fetching page rankings:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// ==================== Visitors Endpoints ====================
+
+// Get list of visitors
+app.get("/api/visitors", async (req, res) => {
+  try {
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 100,
+    } = req.query;
+    const visitors = await getVisitorsList(
+      startDate,
+      endDate,
+      parseInt(limit)
+    );
+
+    res.json({
+      success: true,
+      data: visitors,
+    });
+  } catch (error) {
+    console.error("Error fetching visitors:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get daily visitor trends with new vs returning breakdown
+app.get("/api/visitors/daily-trends", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const trends = await getDailyVisitorTrends(startDate, endDate);
+
+    res.json({
+      success: true,
+      data: trends,
+    });
+  } catch (error) {
+    console.error("Error fetching daily visitor trends:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get visitors for a specific page
+app.get("/api/visitors/by-page/:pagePath", async (req, res) => {
+  try {
+    const { pagePath } = req.params;
+    const decodedPagePath = decodeURIComponent(pagePath);
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+      limit = 100,
+    } = req.query;
+    
+    const visitors = await getVisitorsByPage(
+      decodedPagePath,
+      startDate,
+      endDate,
+      parseInt(limit)
+    );
+
+    res.json({
+      success: true,
+      data: visitors,
+    });
+  } catch (error) {
+    console.error("Error fetching visitors by page:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get detailed information about a specific visitor
+app.get("/api/visitors/:visitorId", async (req, res) => {
+  try {
+    const { visitorId } = req.params;
+    const {
+      startDate = "30daysAgo",
+      endDate = "today",
+    } = req.query;
+    
+    const details = await getVisitorDetails(
+      visitorId,
+      startDate,
+      endDate
+    );
+
+    res.json({
+      success: true,
+      data: details,
+    });
+  } catch (error) {
+    console.error("Error fetching visitor details:", error);
     res.status(500).json({
       success: false,
       error: error.message,

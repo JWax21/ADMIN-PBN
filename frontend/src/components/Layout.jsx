@@ -1,9 +1,11 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { BsGraphUpArrow } from "react-icons/bs";
-import { FiClipboard } from "react-icons/fi";
-import { FaUsers, FaBoxes } from "react-icons/fa";
-import { IoFastFood } from "react-icons/io5";
+import { BsHandIndexThumb } from "react-icons/bs";
+import { MdPeopleAlt } from "react-icons/md";
+import { MdAbc } from "react-icons/md";
+import { PiRanking } from "react-icons/pi";
+import { FaCompressArrowsAlt } from "react-icons/fa";
+import { VscGraphLine } from "react-icons/vsc";
 import { supabase } from "../config/supabase";
 import "./Layout.css";
 
@@ -19,39 +21,55 @@ const Layout = () => {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h2>Admin Dashboard</h2>
+          <div className="sidebar-logo-container">
+            <img src="/logo.png" alt="Protein Bar Nerd Logo" className="sidebar-logo" />
+          </div>
+          <h2>PROTEIN BAR NERD</h2>
         </div>
         <nav className="sidebar-nav">
-          <NavLink to="/" className="nav-link">
-            <span className="nav-icon">
-              <BsGraphUpArrow />
-            </span>
-            KPI
-          </NavLink>
-          <NavLink to="/users" className="nav-link">
-            <span className="nav-icon">
-              <FaUsers />
-            </span>
-            Subscribers
-          </NavLink>
-          <NavLink to="/orders" className="nav-link">
-            <span className="nav-icon">
-              <FiClipboard />
-            </span>
-            Orders
-          </NavLink>
-          <NavLink to="/snack-catalogue" className="nav-link">
-            <span className="nav-icon">
-              <IoFastFood />
-            </span>
-            Snack Catalogue
-          </NavLink>
-          <NavLink to="/inventory" className="nav-link">
-            <span className="nav-icon">
-              <FaBoxes />
-            </span>
-            Inventory
-          </NavLink>
+          <div className="nav-section">
+            <div className="nav-section-label">Traffic</div>
+            <NavLink to="/visitors" className="nav-link">
+              <span className="nav-icon">
+                <MdPeopleAlt />
+              </span>
+              Visitors
+            </NavLink>
+            <NavLink to="/search-performance" className="nav-link">
+              <span className="nav-icon">
+                <VscGraphLine />
+              </span>
+              Search Performance
+            </NavLink>
+            <NavLink to="/traffic-sources" className="nav-link">
+              <span className="nav-icon">
+                <FaCompressArrowsAlt />
+              </span>
+              Traffic Sources
+            </NavLink>
+          </div>
+
+          <div className="nav-section">
+            <div className="nav-section-label">Google Rankings</div>
+            <NavLink to="/page-index" className="nav-link">
+              <span className="nav-icon">
+                <BsHandIndexThumb />
+              </span>
+              Page Index
+            </NavLink>
+            <NavLink to="/top-pages" className="nav-link">
+              <span className="nav-icon">
+                <PiRanking />
+              </span>
+              Top Pages
+            </NavLink>
+            <NavLink to="/page-rankings" className="nav-link">
+              <span className="nav-icon">
+                <MdAbc />
+              </span>
+              Queries
+            </NavLink>
+          </div>
         </nav>
         <div className="sidebar-footer">
           <button
