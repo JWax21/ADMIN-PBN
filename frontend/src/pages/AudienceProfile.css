@@ -137,3 +137,16 @@
   color: #ef4444;
 }
 
+.geography-heatmap-container {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.geography-heatmap {
+  width: 100%;
+  height: 500px;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+

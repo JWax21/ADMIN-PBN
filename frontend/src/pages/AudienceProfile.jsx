@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import apiClient from "../api/axios";
+import GeographyHeatmap from "../components/GeographyHeatmap";
 import "./AudienceProfile.css";
 
 const AudienceProfile = () => {
@@ -119,33 +120,39 @@ const AudienceProfile = () => {
           </div>
 
           {activeTab === "geography" && (
-            <div className="card">
-              <h2>Geographic Breakdown</h2>
-              <div className="table-container">
-                <table className="audience-table">
-                  <thead>
-                    <tr>
-                      <th>Country</th>
-                      <th>Region</th>
-                      <th>Users</th>
-                      <th>Sessions</th>
-                      <th>Page Views</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profile.geographic?.map((geo, index) => (
-                      <tr key={index}>
-                        <td>{geo.country}</td>
-                        <td>{geo.region}</td>
-                        <td>{geo.users?.toLocaleString()}</td>
-                        <td>{geo.sessions?.toLocaleString()}</td>
-                        <td>{geo.pageViews?.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <>
+              <div className="card">
+                <h2>Geographic Heatmap</h2>
+                <GeographyHeatmap geographicData={profile.geographic} />
               </div>
-            </div>
+              <div className="card">
+                <h2>Geographic Breakdown</h2>
+                <div className="table-container">
+                  <table className="audience-table">
+                    <thead>
+                      <tr>
+                        <th>Country</th>
+                        <th>Region</th>
+                        <th>Users</th>
+                        <th>Sessions</th>
+                        <th>Page Views</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {profile.geographic?.map((geo, index) => (
+                        <tr key={index}>
+                          <td>{geo.country}</td>
+                          <td>{geo.region}</td>
+                          <td>{geo.users?.toLocaleString()}</td>
+                          <td>{geo.sessions?.toLocaleString()}</td>
+                          <td>{geo.pageViews?.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
 
           {activeTab === "device" && (
