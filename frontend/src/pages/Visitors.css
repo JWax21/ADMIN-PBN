@@ -724,12 +724,13 @@
   margin-bottom: 0.75rem;
   background: #ffffff;
   color: #111827;
-  padding: 1rem 1.5rem;
+  padding: 1.25rem 1rem;
   border-radius: 0.5rem;
   border: 1px solid #d1d5db;
   font-size: 0.875rem;
   font-family: 'Montserrat', sans-serif;
   min-width: 180px;
+  min-height: 140px;
   z-index: 10;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
@@ -749,11 +750,13 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.375rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
   width: 100%;
 }
 
 .tooltip-day-name {
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   color: #9ca3af;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -761,8 +764,9 @@
 }
 
 .tooltip-date {
-  font-weight: 600;
-  font-size: 0.625rem;
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: #9ca3af;
 }
 
 .tooltip-divider {
@@ -776,25 +780,55 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.25rem;
+  margin-top: 0.375rem;
   font-size: 0.875rem;
   width: 100%;
 }
 
+.tooltip-value.tooltip-new {
+  background: #ffffff;
+  border: 1px solid #111827;
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.tooltip-value.tooltip-returning {
+  background: #111827;
+  border: 1px solid #111827;
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.5rem;
+}
+
+.tooltip-value.tooltip-returning .tooltip-label,
+.tooltip-value.tooltip-returning .tooltip-number {
+  color: #ffffff;
+}
+
 .tooltip-value.total {
-  margin-top: 0.375rem;
-  padding-top: 0.375rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 1rem;
+}
+
+.tooltip-value.total .tooltip-label,
+.tooltip-value.total .tooltip-number {
+  color: #111827;
 }
 
 .tooltip-label {
   font-weight: 400;
+  color: #9ca3af;
+  font-size: 0.875rem;
 }
 
 .tooltip-number {
   font-weight: 600;
+  font-size: 0.875rem;
+  color: #111827;
 }
 
 .trend-label {

@@ -5,7 +5,7 @@
 }
 
 .sidebar {
-  width: 250px;
+  width: 220px;
   background-color: white;
   color: #111827;
   display: flex;
@@ -48,7 +48,7 @@
 
 .sidebar-header h2 {
   font-family: 'Montserrat', sans-serif;
-  font-size: 1rem;
+  font-size: 0.75rem;
   font-weight: 600;
   margin: 0;
   color: #111827;
@@ -131,7 +131,7 @@
 
 .main-content {
   flex: 1;
-  margin-left: 250px;
+  margin-left: 220px;
   padding: 2rem;
   min-height: 100vh;
   display: flex;

@@ -633,11 +633,11 @@ const Visitors = () => {
                                   </div>
                                 </div>
                                 <div className="tooltip-divider"></div>
-                                <div className="tooltip-value">
+                                <div className="tooltip-value tooltip-new">
                                   <span className="tooltip-label">New</span>
                                   <span className="tooltip-number">{formatNumber(day.new)}</span>
                                 </div>
-                                <div className="tooltip-value">
+                                <div className="tooltip-value tooltip-returning">
                                   <span className="tooltip-label">Returning</span>
                                   <span className="tooltip-number">{formatNumber(day.returning)}</span>
                                 </div>
