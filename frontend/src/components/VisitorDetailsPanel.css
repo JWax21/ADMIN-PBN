@@ -69,11 +69,39 @@
   gap: 1rem;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
   color: #111827;
+}
+
+.visitor-details-panel .panel-header .visitor-header-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.header-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.header-tag {
+  padding: 0.25rem 0.5rem;
+  background: #e5e7eb;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
 }
 
 .client-id-badge {
@@ -118,6 +146,13 @@
 .detail-section:last-child {
   border-bottom: none;
   padding-bottom: 0;
+}
+
+.detail-section h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 1rem 0;
 }
 
 .section-title {

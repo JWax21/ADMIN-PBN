@@ -106,7 +106,6 @@ const Visitors = () => {
   const handleRowClick = async (visitor) => {
     try {
       console.log("Row clicked, visitor:", visitor);
-      setLoading(true);
       const params = {
         startDate: dateRange,
         endDate: "today",
@@ -120,6 +119,13 @@ const Visitors = () => {
       console.log("Visitor details response:", response.data);
       if (response.data.success) {
         const visitorDetails = response.data.data;
+        // Pass location, time, and metrics from clicked row to visitor details
+        visitorDetails.city = visitor.city;
+        visitorDetails.region = visitor.region;
+        visitorDetails.country = visitor.country;
+        visitorDetails.hour = visitor.hour;
+        visitorDetails.totalDuration = visitor.totalDuration;
+        visitorDetails.pageViews = visitor.pageViews;
         setSelectedVisitor(visitorDetails);
         setIsPanelOpen(true);
         
@@ -142,8 +148,6 @@ const Visitors = () => {
       console.error("Error fetching visitor details:", error);
       console.error("Error details:", error.response?.data);
       setError(error.response?.data?.error || error.message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -176,6 +180,12 @@ const Visitors = () => {
   };
 
   const formatLocation = (city, region, country) => {
+    // For non-US locations, only show country
+    if (country && country !== "N/A" && country !== "United States") {
+      return country;
+    }
+    
+    // For US locations, show city, state, country
     const parts = [];
     
     if (city && city !== "N/A" && city !== "(not set)") {
@@ -193,6 +203,114 @@ const Visitors = () => {
     }
     
     return parts.length > 0 ? parts.join(", ") : "N/A";
+  };
+
+  const formatTime = (hour) => {
+    if (!hour && hour !== 0) return "N/A";
+    const hourNum = parseInt(hour);
+    if (isNaN(hourNum) || hourNum < 0 || hourNum > 23) return "N/A";
+    
+    const period = hourNum >= 12 ? "PM" : "AM";
+    const displayHour = hourNum === 0 ? 12 : hourNum > 12 ? hourNum - 12 : hourNum;
+    return `${displayHour}:00 ${period}`;
+  };
+
+  const getPageType = (url) => {
+    if (!url || url === "(not set)" || url === "N/A") return { type: "N/A", remainingSlug: "N/A" };
+    
+    // Normalize the URL
+    const normalizedUrl = url.startsWith("/") ? url : `/${url}`;
+    
+    if (normalizedUrl === "/") {
+      return { type: "Landing", remainingSlug: "/" };
+    } else if (normalizedUrl.startsWith("/articles/rankings/")) {
+      const remaining = normalizedUrl.replace("/articles/rankings", "");
+      return { type: "Rankings", remainingSlug: remaining || "/" };
+    } else if (normalizedUrl.startsWith("/articles/bars/reviews/")) {
+      const remaining = normalizedUrl.replace("/articles/bars/reviews", "");
+      return { type: "Reviews", remainingSlug: remaining || "/" };
+    }
+    
+    // Default: return the first meaningful part or "Other"
+    const parts = normalizedUrl.split("/").filter(p => p);
+    if (parts.length > 0) {
+      // Capitalize first letter
+      const type = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+      const remaining = parts.length > 1 ? "/" + parts.slice(1).join("/") : "/";
+      return { type, remainingSlug: remaining };
+    }
+    
+    return { type: "Other", remainingSlug: normalizedUrl };
+  };
+
+  const getSourceIcon = (source) => {
+    if (!source || source === "N/A") return null;
+    
+    const sourceLower = source.toLowerCase();
+    
+    // Special case for direct traffic - use our logo
+    if (sourceLower === "direct" || sourceLower === "(direct)") {
+      return "/logo.png";
+    }
+    
+    // Map of sources to favicon URLs
+    const sourceMap = {
+      "google": "https://www.google.com/favicon.ico",
+      "bing": "https://www.bing.com/favicon.ico",
+      "yahoo": "https://www.yahoo.com/favicon.ico",
+      "duckduckgo": "https://duckduckgo.com/favicon.ico",
+      "facebook": "https://www.facebook.com/favicon.ico",
+      "twitter": "https://twitter.com/favicon.ico",
+      "linkedin": "https://www.linkedin.com/favicon.ico",
+      "reddit": "https://www.reddit.com/favicon.ico",
+      "youtube": "https://www.youtube.com/favicon.ico",
+      "instagram": "https://www.instagram.com/favicon.ico",
+      "pinterest": "https://www.pinterest.com/favicon.ico",
+      "tiktok": "https://www.tiktok.com/favicon.ico",
+      "chatgpt.com": "https://chat.openai.com/favicon.ico",
+      "openai.com": "https://openai.com/favicon.ico",
+    };
+    
+    // Check for exact match first
+    if (sourceMap[sourceLower]) {
+      return sourceMap[sourceLower];
+    }
+    
+    // Check if source contains any of the mapped domains
+    for (const [key, url] of Object.entries(sourceMap)) {
+      if (sourceLower.includes(key)) {
+        return url;
+      }
+    }
+    
+    return null;
+  };
+
+  const formatSlug = (slug) => {
+    if (!slug || slug === "N/A" || slug === "/") return "N/A";
+    
+    // Remove leading slash and split by "/"
+    const parts = slug.replace(/^\/+/, "").split("/").filter(p => p);
+    
+    if (parts.length === 0) return "N/A";
+    
+    // Format each part: replace - and _ with spaces, then convert to sentence case
+    const formatPart = (part) => {
+      // Replace hyphens and underscores with spaces
+      let formatted = part.replace(/[-_]/g, " ");
+      // Convert to sentence case (capitalize first letter of each word)
+      return formatted
+        .split(" ")
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(" ");
+    };
+    
+    const formattedParts = parts.map(formatPart);
+    
+    if (formattedParts.length === 1) return formattedParts[0];
+    
+    // Return first two parts separated by " | "
+    return `${formattedParts[0]} | ${formattedParts[1]}`;
   };
 
   const formatDeviceInfo = (deviceCategory, deviceBrand, deviceModel, operatingSystem, browser) => {
@@ -257,14 +375,23 @@ const Visitors = () => {
     return `${minutes}:${String(secs).padStart(2, "0")}`;
   };
 
+  const getDayOfWeek = (dateStr) => {
+    if (!dateStr || dateStr.length !== 8) return "";
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1; // Month is 0-indexed
+    const day = parseInt(dateStr.substring(6, 8));
+    const date = new Date(year, month, day);
+    const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+    return days[date.getDay()];
+  };
+
   const formatDate = (dateStr) => {
     if (!dateStr) return "N/A";
-    // Format YYYYMMDD to readable date
+    // Format YYYYMMDD to readable date (without year)
     if (dateStr.length === 8) {
-      const year = dateStr.substring(0, 4);
       const month = dateStr.substring(4, 6);
       const day = dateStr.substring(6, 8);
-      return `${month}/${day}/${year}`;
+      return `${month}/${day}`;
     }
     return dateStr;
   };
@@ -377,7 +504,15 @@ const Visitors = () => {
               </div>
             )}
             <div className="visitor-metric-card">
-              <div className="visitor-metric-label">Total Unique Visitors</div>
+              <div className="visitor-metric-label">
+                {dateRange === "7daysAgo"
+                  ? "Week"
+                  : dateRange === "30daysAgo"
+                  ? "Month"
+                  : dateRange === "90daysAgo"
+                  ? "3 Month"
+                  : "Total Unique Visitors"}
+              </div>
               <div className="visitor-metric-value">
                 {formatNumber(metrics.activeUsers)}
               </div>
@@ -442,72 +577,86 @@ const Visitors = () => {
 
                 {/* Stacked Bars */}
                 <div className="trend-bars">
-                  {dailyTrends.slice(-30).map((day, index) => {
+                  {(() => {
                     const maxTotal = Math.max(
                       ...dailyTrends.map((d) => d.total),
                       100
                     );
-                    const totalBarHeight = ((day.new + day.returning) / maxTotal) * 100;
-                    const returningPercent = day.total > 0 ? (day.returning / day.total) * 100 : 0;
-                    const newPercent = day.total > 0 ? (day.new / day.total) * 100 : 0;
-                    return (
-                      <div
-                        key={index}
-                        className="trend-bar-container"
-                        onMouseEnter={() => setHoveredBar(index)}
-                        onMouseLeave={() => setHoveredBar(null)}
-                      >
+                    return dailyTrends.slice(-30).map((day, index) => {
+                      // Total bar height as percentage of container
+                      const totalBarHeight = (day.total / maxTotal) * 100;
+                      // Segment heights as percentages of the bar (not container)
+                      const dayTotal = day.total;
+                      const returningHeight = dayTotal > 0 ? (day.returning / dayTotal) * 100 : 0;
+                      const newHeight = dayTotal > 0 ? (day.new / dayTotal) * 100 : 0;
+                      return (
                         <div
-                          className="trend-bar-stacked"
-                          style={{
-                            height: `${totalBarHeight}%`,
-                          }}
+                          key={index}
+                          className="trend-bar-container"
+                          onMouseEnter={() => setHoveredBar(index)}
+                          onMouseLeave={() => setHoveredBar(null)}
                         >
-                          {/* Returning visitors (bottom segment) */}
-                          {day.returning > 0 && (
-                            <div
-                              className="trend-bar-segment returning"
-                              style={{
-                                height: `${returningPercent}%`,
-                                minHeight: "2px",
-                              }}
-                            ></div>
-                          )}
-                          {/* New visitors (top segment) */}
-                          {day.new > 0 && (
-                            <div
-                              className="trend-bar-segment new"
-                              style={{
-                                height: `${newPercent}%`,
-                                minHeight: "2px",
-                              }}
-                            ></div>
-                          )}
-                          {hoveredBar === index && (
-                            <div className="bar-tooltip">
-                              <div className="tooltip-date">
-                                {formatDate(day.date)}
+                          <div
+                            className="trend-bar-stacked"
+                            style={{
+                              height: `${totalBarHeight}%`,
+                            }}
+                          >
+                            {/* Returning visitors (bottom segment) */}
+                            {day.returning > 0 && (
+                              <div
+                                className="trend-bar-segment returning"
+                                style={{
+                                  height: `${returningHeight}%`,
+                                  minHeight: "2px",
+                                }}
+                              ></div>
+                            )}
+                            {/* New visitors (top segment) */}
+                            {day.new > 0 && (
+                              <div
+                                className="trend-bar-segment new"
+                                style={{
+                                  height: `${newHeight}%`,
+                                  minHeight: "2px",
+                                }}
+                              ></div>
+                            )}
+                            {hoveredBar === index && (
+                              <div className="bar-tooltip">
+                                <div className="tooltip-header">
+                                  <div className="tooltip-day-name">
+                                    {getDayOfWeek(day.date)}
+                                  </div>
+                                  <div className="tooltip-date">
+                                    {formatDate(day.date)}
+                                  </div>
+                                </div>
+                                <div className="tooltip-divider"></div>
+                                <div className="tooltip-value">
+                                  <span className="tooltip-label">New</span>
+                                  <span className="tooltip-number">{formatNumber(day.new)}</span>
+                                </div>
+                                <div className="tooltip-value">
+                                  <span className="tooltip-label">Returning</span>
+                                  <span className="tooltip-number">{formatNumber(day.returning)}</span>
+                                </div>
+                                <div className="tooltip-value total">
+                                  <span className="tooltip-label">Total</span>
+                                  <span className="tooltip-number">{formatNumber(day.total)}</span>
+                                </div>
                               </div>
-                              <div className="tooltip-value">
-                                New: {formatNumber(day.new)}
-                              </div>
-                              <div className="tooltip-value">
-                                Returning: {formatNumber(day.returning)}
-                              </div>
-                              <div className="tooltip-value total">
-                                Total: {formatNumber(day.total)}
-                              </div>
-                            </div>
+                            )}
+                          </div>
+                          {index % 5 === 0 && (
+                            <span className="trend-label">
+                              {formatDate(day.date)}
+                            </span>
                           )}
                         </div>
-                        {index % 5 === 0 && (
-                          <span className="trend-label">
-                            {formatDate(day.date)}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             </div>
@@ -522,13 +671,13 @@ const Visitors = () => {
           <table className="visitors-table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>First Page</th>
-                <th>Location</th>
                 <th>Source</th>
-                <th>Sessions</th>
-                <th>Page Views</th>
+                <th>User</th>
+                <th>Date</th>
+                <th>Location</th>
+                <th>First Page</th>
+                <th></th>
+                <th>Pages</th>
                 <th>Duration</th>
               </tr>
             </thead>
@@ -540,7 +689,26 @@ const Visitors = () => {
                     onClick={() => handleRowClick(visitor)}
                     className={`visitor-row ${isToday(visitor.date) ? 'today-row' : ''}`}
                   >
-                    <td>{formatDate(visitor.date)}</td>
+                    <td>
+                      <div className="source-info">
+                        {(() => {
+                          const source = visitor.sessionSource || "N/A";
+                          // Show empty string for "(not set)"
+                          if (source === "(not set)") {
+                            return <span className="source"> </span>;
+                          }
+                          const iconUrl = getSourceIcon(source);
+                          return iconUrl ? (
+                            <span className="source-with-icon">
+                              <img src={iconUrl} alt={source} className="source-icon" onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'inline'; }} />
+                              <span className="source-text" style={{ display: 'none' }}>{source}</span>
+                            </span>
+                          ) : (
+                            <span className="source">{source}</span>
+                          );
+                        })()}
+                      </div>
+                    </td>
                     <td>
                       <span
                         className={`visitor-type ${
@@ -553,26 +721,45 @@ const Visitors = () => {
                       </span>
                     </td>
                     <td>
-                      <div className="first-page-info">
-                        {visitor.landingPage && visitor.landingPage !== "(not set)" ? (
-                          <span className="first-page-url">{visitor.landingPage}</span>
-                        ) : (
-                          <span className="first-page-url">N/A</span>
-                        )}
-                      </div>
+                      <span className="date-value">{formatDate(visitor.date)}</span><span className="separator">|</span> {formatTime(visitor.hour)}
                     </td>
                     <td>
                       {formatLocation(visitor.city, visitor.region, visitor.country)}
                     </td>
                     <td>
-                      <div className="source-info">
-                        <span className="source">
-                          {visitor.sessionSource || "N/A"}
-                        </span>
+                      <div className="first-page-info">
+                        {visitor.landingPage && visitor.landingPage !== "(not set)" ? (
+                          (() => {
+                            const pageType = getPageType(visitor.landingPage).type;
+                            const isTag = pageType === "Rankings" || pageType === "Reviews" || pageType === "Landing";
+                            return isTag ? (
+                              <span className={`page-type-tag ${pageType.toLowerCase()}-tag`}>{pageType}</span>
+                            ) : (
+                              <span className="first-page-type">{pageType}</span>
+                            );
+                          })()
+                        ) : (
+                          <span className="first-page-type">N/A</span>
+                        )}
                       </div>
                     </td>
-                    <td className="number-cell">
-                      {formatNumber(visitor.sessions)}
+                    <td>
+                      <div className="first-page-info">
+                        {visitor.landingPage && visitor.landingPage !== "(not set)" ? (
+                          (() => {
+                            const slug = getPageType(visitor.landingPage).remainingSlug;
+                            const formatted = formatSlug(slug);
+                            const parts = formatted.split(" | ");
+                            return parts.length === 2 ? (
+                              <span className="first-page-url"><span className="slug-value-1">{parts[0]}</span><span className="separator">|</span>{parts[1]}</span>
+                            ) : (
+                              <span className="first-page-url"><span className="slug-value-1">{formatted}</span></span>
+                            );
+                          })()
+                        ) : (
+                          <span className="first-page-url">N/A</span>
+                        )}
+                      </div>
                     </td>
                     <td className="number-cell">
                       {formatNumber(visitor.pageViews)}
@@ -610,25 +797,6 @@ const Visitors = () => {
             setSelectedVisitor(null);
           }}
         />
-      )}
-      
-      {/* Debug overlay - shows panel state */}
-      {process.env.NODE_ENV === 'development' && (
-        <div style={{ 
-          position: 'fixed', 
-          bottom: 10, 
-          right: 10, 
-          background: 'rgba(0,0,0,0.8)', 
-          color: 'white', 
-          padding: '10px', 
-          zIndex: 99999,
-          fontSize: '12px',
-          borderRadius: '4px'
-        }}>
-          Panel Open: {isPanelOpen ? 'Yes' : 'No'}<br/>
-          Has Visitor: {selectedVisitor ? 'Yes' : 'No'}<br/>
-          Visitor ID: {selectedVisitor?.visitorId?.substring(0, 30) || 'N/A'}...
-        </div>
       )}
     </div>
   );

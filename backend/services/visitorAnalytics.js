@@ -38,8 +38,8 @@ export const getVisitorsList = async (
         ],
         dimensions: [
           { name: "date" },
+          { name: "hour" }, // Hour of day
           { name: "landingPage" }, // First page viewed
-          { name: "operatingSystem" },
           { name: "browser" },
           { name: "country" },
           { name: "region" },
@@ -63,53 +63,160 @@ export const getVisitorsList = async (
             },
             desc: true,
           },
+          {
+            dimension: {
+              dimensionName: "hour",
+            },
+            desc: true,
+          },
         ],
         limit,
       },
     });
 
-    const visitors =
-      response.data.rows?.map((row, index) => {
-        const dimensions = row.dimensionValues;
-        const metrics = row.metricValues;
+    // First, map all rows to visitor objects with index for unique IDs
+    const allVisitors = response.data.rows?.map((row, rowIndex) => {
+      const dimensions = row.dimensionValues;
+      const metrics = row.metricValues;
 
-        // Create a composite ID from available dimensions
-        // Format: date|||landingPage|||operatingSystem|||browser|||country|||region|||city|||newVsReturning|||sessionSource|||index
-        // Using ||| as delimiter to avoid conflicts with URLs that contain dashes
-        const compositeId = `${dimensions[0].value}|||${encodeURIComponent(
-          dimensions[1].value
-        )}|||${dimensions[2].value}|||${dimensions[3].value}|||${
-          dimensions[4].value
-        }|||${dimensions[5].value || "none"}|||${
-          dimensions[6].value || "none"
-        }|||${dimensions[7].value}|||${
-          dimensions[8].value || "none"
-        }|||${index}`;
+      // Normalize newVsReturning value - GA4 should return "new" or "returning"
+      // but sometimes returns "(not set)", empty strings, or other values
+      const newVsReturningValue = dimensions[7].value?.toLowerCase();
+      const normalizedNewVsReturning = 
+        newVsReturningValue === "returning" ? "returning" : "new";
 
-        return {
-          id: compositeId, // Composite identifier
-          date: dimensions[0].value,
-          landingPage: dimensions[1].value || "", // First page viewed - may be empty
-          deviceCategory: "N/A", // Removed to make room for landingPage
-          deviceBrand: "N/A", // Removed to stay within 9-dimension limit
-          deviceModel: "N/A", // Removed to stay within 9-dimension limit
-          operatingSystem: dimensions[2].value,
-          browser: dimensions[3].value,
-          country: dimensions[4].value,
-          region: dimensions[5].value || "N/A",
-          city: dimensions[6].value || "N/A",
-          newVsReturning: dimensions[7].value,
-          sessionSource: dimensions[8].value || "N/A", // Current session source
-          firstUserSource: "N/A", // Removed to stay within 9-dimension limit - only showing current source
-          sessions: parseInt(metrics[0].value),
-          pageViews: parseInt(metrics[1].value),
-          avgSessionDuration: parseFloat(metrics[2].value),
-          totalDuration: parseFloat(metrics[3].value), // Total engagement duration in seconds
-          engagedSessions: parseInt(metrics[4].value),
-          bounceRate: parseFloat(metrics[5].value) * 100,
-          activeUsers: parseInt(metrics[6].value),
-        };
-      }) || [];
+      return {
+        date: dimensions[0].value,
+        hour: dimensions[1].value, // Hour of day (0-23)
+        landingPage: dimensions[2].value || "", // First page viewed - may be empty
+        browser: dimensions[3].value,
+        country: dimensions[4].value,
+        region: dimensions[5].value || "N/A",
+        city: dimensions[6].value || "N/A",
+        newVsReturning: normalizedNewVsReturning,
+        sessionSource: dimensions[8].value || "N/A", // Current session source
+        sessions: parseInt(metrics[0].value),
+        pageViews: parseInt(metrics[1].value),
+        avgSessionDuration: parseFloat(metrics[2].value),
+        totalDuration: parseFloat(metrics[3].value), // Total engagement duration in seconds
+        engagedSessions: parseInt(metrics[4].value),
+        bounceRate: parseFloat(metrics[5].value) * 100,
+        activeUsers: parseInt(metrics[6].value),
+        _rowIndex: rowIndex, // Store original row index for composite ID
+      };
+    }) || [];
+
+    // Group by user characteristics to ensure one row per unique user
+    // User is identified by: country, region, city, browser (most stable identifiers)
+    const userMap = new Map();
+
+    allVisitors.forEach((visitor) => {
+      // Create a user key from stable characteristics
+      const userKey = `${visitor.country}|||${visitor.region}|||${visitor.city}|||${visitor.browser}`;
+
+      if (!userMap.has(userKey)) {
+        // First occurrence - use this as the base
+        // Create composite ID with index (10 parts total for backend compatibility)
+        const compositeId = `${visitor.date}|||${visitor.hour}|||${encodeURIComponent(
+          visitor.landingPage
+        )}|||${visitor.browser}|||${visitor.country}|||${
+          visitor.region || "none"
+        }|||${visitor.city || "none"}|||${
+          visitor.newVsReturning
+        }|||${visitor.sessionSource || "none"}|||${visitor._rowIndex}`;
+
+        userMap.set(userKey, {
+          id: compositeId,
+          date: visitor.date,
+          hour: visitor.hour,
+          landingPage: visitor.landingPage,
+          deviceCategory: "N/A",
+          deviceBrand: "N/A",
+          deviceModel: "N/A",
+          operatingSystem: "N/A",
+          browser: visitor.browser,
+          country: visitor.country,
+          region: visitor.region,
+          city: visitor.city,
+          newVsReturning: visitor.newVsReturning,
+          sessionSource: visitor.sessionSource,
+          firstUserSource: "N/A",
+          sessions: visitor.sessions,
+          pageViews: visitor.pageViews,
+          totalDuration: visitor.totalDuration,
+          engagedSessions: visitor.engagedSessions,
+          bounceRate: visitor.bounceRate,
+          activeUsers: 1, // Each row represents 1 unique user
+          // Store for aggregation
+          _allDurations: [visitor.avgSessionDuration],
+          _dateHour: `${visitor.date}${visitor.hour.padStart(2, '0')}`, // For sorting most recent
+          _rowIndex: visitor._rowIndex, // Store row index for composite ID
+        });
+      } else {
+        // Aggregate metrics for this user
+        const existing = userMap.get(userKey);
+        existing.sessions += visitor.sessions;
+        existing.pageViews += visitor.pageViews;
+        existing.totalDuration += visitor.totalDuration;
+        existing.engagedSessions += visitor.engagedSessions;
+        // activeUsers stays 1 since each row represents 1 unique user
+        existing._allDurations.push(visitor.avgSessionDuration);
+        
+        // Update to most recent visit
+        const currentDateHour = `${visitor.date}${visitor.hour.padStart(2, '0')}`;
+        if (currentDateHour > existing._dateHour) {
+          existing.date = visitor.date;
+          existing.hour = visitor.hour;
+          existing.landingPage = visitor.landingPage;
+          existing.sessionSource = visitor.sessionSource;
+          existing.newVsReturning = visitor.newVsReturning; // Use most recent classification
+          existing._dateHour = currentDateHour;
+          existing._rowIndex = visitor._rowIndex; // Update row index to most recent
+          // Update ID to reflect most recent visit (include index for 10 parts)
+          existing.id = `${visitor.date}|||${visitor.hour}|||${encodeURIComponent(
+            visitor.landingPage
+          )}|||${visitor.browser}|||${visitor.country}|||${
+            visitor.region || "none"
+          }|||${visitor.city || "none"}|||${
+            visitor.newVsReturning
+          }|||${visitor.sessionSource || "none"}|||${visitor._rowIndex}`;
+        }
+      }
+    });
+
+    // Convert map to array and calculate aggregated averages
+    const visitors = Array.from(userMap.values()).map((visitor) => {
+      // Calculate average session duration from all sessions
+      const avgDuration = visitor._allDurations.reduce((sum, d) => sum + d, 0) / visitor._allDurations.length;
+      
+      // Recalculate bounce rate: (total sessions - engaged sessions) / total sessions * 100
+      const recalculatedBounceRate = visitor.sessions > 0 
+        ? ((visitor.sessions - visitor.engagedSessions) / visitor.sessions) * 100 
+        : 0;
+      
+      // Store dateHour for sorting before deleting
+      const dateHour = visitor._dateHour;
+      
+      // Remove temporary fields
+      delete visitor._allDurations;
+      delete visitor._dateHour;
+      delete visitor._rowIndex;
+      
+      return {
+        ...visitor,
+        avgSessionDuration: avgDuration,
+        bounceRate: recalculatedBounceRate,
+        _sortKey: dateHour, // Temporary sort key
+      };
+    });
+
+    // Sort by most recent date and hour (descending)
+    visitors.sort((a, b) => {
+      return b._sortKey.localeCompare(a._sortKey);
+    });
+
+    // Remove sort key
+    visitors.forEach(v => delete v._sortKey);
 
     // For visitors with empty landingPage, fetch the first pagePath they visited
     const visitorsNeedingFirstPage = visitors.filter(
@@ -134,12 +241,12 @@ export const getVisitorsList = async (
                 { name: "date" },
                 { name: "hour" },
                 { name: "pagePath" },
-                { name: "operatingSystem" },
                 { name: "browser" },
                 { name: "country" },
                 { name: "region" },
                 { name: "city" },
                 { name: "newVsReturning" },
+                { name: "sessionSource" },
               ],
               metrics: [{ name: "screenPageViews" }],
               orderBys: [
@@ -165,15 +272,15 @@ export const getVisitorsList = async (
         if (firstPageResponse?.data?.rows) {
           firstPageResponse.data.rows.forEach((row) => {
             const dims = row.dimensionValues;
-            // Create a key from dimensions (same as visitor key but without landingPage and sessionSource)
-            // dims[0] = date, dims[1] = hour, dims[2] = pagePath, dims[3] = operatingSystem,
-            // dims[4] = browser, dims[5] = country, dims[6] = region, dims[7] = city,
-            // dims[8] = newVsReturning
-            const key = `${dims[0].value}|||${dims[3].value}|||${
+            // Create a key from dimensions (same as visitor key but without landingPage)
+            // dims[0] = date, dims[1] = hour, dims[2] = pagePath, dims[3] = browser,
+            // dims[4] = country, dims[5] = region, dims[6] = city, dims[7] = newVsReturning,
+            // dims[8] = sessionSource
+            const key = `${dims[0].value}|||${dims[1].value}|||${dims[3].value}|||${
               dims[4].value
-            }|||${dims[5].value}|||${dims[6].value || "none"}|||${
-              dims[7].value || "none"
-            }|||${dims[8].value}`;
+            }|||${dims[5].value || "none"}|||${dims[6].value || "none"}|||${
+              dims[7].value
+            }|||${dims[8].value || "none"}`;
 
             // Only set if not already set (first occurrence is the earliest)
             if (!firstPageMap[key]) {
@@ -185,13 +292,15 @@ export const getVisitorsList = async (
         // Update visitors with empty landingPage
         visitors.forEach((visitor) => {
           if (!visitor.landingPage || visitor.landingPage === "") {
-            // Match without sessionSource since it's not in the first page query
-            const key = `${visitor.date}|||${visitor.operatingSystem}|||${
+            // Match with hour, region, city, and sessionSource included
+            const key = `${visitor.date}|||${visitor.hour}|||${
               visitor.browser
             }|||${visitor.country}|||${
               visitor.region !== "N/A" ? visitor.region : "none"
             }|||${visitor.city !== "N/A" ? visitor.city : "none"}|||${
               visitor.newVsReturning
+            }|||${
+              visitor.sessionSource !== "N/A" ? visitor.sessionSource : "none"
             }`;
 
             if (firstPageMap[key]) {
@@ -228,7 +337,7 @@ export const getVisitorDetails = async (
 
   try {
     // Parse the composite ID to extract filter values
-    // Format: date|||landingPage|||operatingSystem|||browser|||country|||region|||city|||newVsReturning|||sessionSource|||index
+    // Format: date|||hour|||landingPage|||browser|||country|||region|||city|||newVsReturning|||sessionSource|||index
     // Using ||| as delimiter to avoid conflicts with URLs that contain dashes
     const parts = visitorId.split("|||");
     if (parts.length < 10) {
@@ -237,8 +346,8 @@ export const getVisitorDetails = async (
       );
     }
     const date = parts[0];
-    const landingPage = decodeURIComponent(parts[1]); // Decode the URL-encoded landing page
-    const operatingSystem = parts[2];
+    const hour = parts[1];
+    const landingPage = decodeURIComponent(parts[2]); // Decode the URL-encoded landing page
     const browser = parts[3];
     const country = parts[4];
     const region = parts[5] !== "none" ? parts[5] : null;
@@ -248,8 +357,8 @@ export const getVisitorDetails = async (
 
     // Build dimension filters - limit to essential filters to stay under 9 dimension limit
     // Note: GA4 counts dimension filters toward the 9-dimension limit
-    // We'll use only the most critical filters: date, landingPage, country, newVsReturning
-    // This reduces from 9 filters to 4, leaving room for 5 dimensions in the query
+    // We'll use only the most critical filters: date, hour, landingPage, country, newVsReturning
+    // This reduces from 9 filters to 5, leaving room for 4 dimensions in the query
     const dimensionFilter = {
       andGroup: {
         expressions: [
@@ -259,6 +368,15 @@ export const getVisitorDetails = async (
               stringFilter: {
                 matchType: "EXACT",
                 value: date,
+              },
+            },
+          },
+          {
+            filter: {
+              fieldName: "hour",
+              stringFilter: {
+                matchType: "EXACT",
+                value: hour,
               },
             },
           },
@@ -427,39 +545,128 @@ export const getVisitorDetails = async (
       },
     });
 
-    // Get scroll depth events for pages (custom event tracking)
-    const scrollEventsResponse = await analyticsDataClient.properties.runReport(
-      {
-        property: `properties/${propertyId}`,
-        requestBody: {
-          dateRanges: [
-            {
-              startDate,
-              endDate,
-            },
-          ],
-          dimensions: [{ name: "pagePath" }, { name: "eventName" }],
-          metrics: [{ name: "eventCount" }],
-          dimensionFilter: {
-            andGroup: {
-              expressions: [
-                ...dimensionFilter.andGroup.expressions,
-                {
-                  filter: {
-                    fieldName: "eventName",
-                    stringFilter: {
-                      matchType: "CONTAINS",
-                      value: "scroll",
-                    },
-                  },
-                },
-              ],
+    // Get scroll depth events for pages using event parameter
+    // GA4 stores scroll percentage in event parameter "percent_scrolled"
+    // Note: We need to get scroll events for all pages visited by this visitor,
+    // so we'll query without visitor-specific filters and then match by pagePath
+    let scrollEventsResponse = null;
+    
+    // First, collect all page paths from pageviews to filter scroll events
+    const pagePathsFromPageviews = [];
+    if (pageviewsResponse?.data?.rows) {
+      pageviewsResponse.data.rows.forEach((row) => {
+        const pagePath = row.dimensionValues[0].value;
+        if (pagePath && !pagePathsFromPageviews.includes(pagePath)) {
+          pagePathsFromPageviews.push(pagePath);
+        }
+      });
+    }
+    
+    // Only query scroll events if we have page paths
+    if (pagePathsFromPageviews.length > 0) {
+      try {
+        // Build filter for page paths
+        const pagePathFilters = pagePathsFromPageviews.map(pagePath => ({
+          filter: {
+            fieldName: "pagePath",
+            stringFilter: {
+              matchType: "EXACT",
+              value: pagePath,
             },
           },
-          limit: 100,
-        },
+        }));
+        
+        scrollEventsResponse = await analyticsDataClient.properties.runReport({
+          property: `properties/${propertyId}`,
+          requestBody: {
+            dateRanges: [
+              {
+                startDate,
+                endDate,
+              },
+            ],
+            dimensions: [
+              { name: "pagePath" },
+              { name: "eventParameter:percent_scrolled" }
+            ],
+            metrics: [{ name: "eventCount" }],
+            dimensionFilter: {
+              andGroup: {
+                expressions: [
+                  {
+                    orGroup: {
+                      expressions: pagePathFilters,
+                    },
+                  },
+                  {
+                    filter: {
+                      fieldName: "eventName",
+                      stringFilter: {
+                        matchType: "EXACT",
+                        value: "scroll",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+            limit: 100,
+          },
+        });
+      } catch (scrollError) {
+        console.warn("Scroll events query with parameter failed, trying alternative method:", scrollError.message);
+        // Fallback: try with event name containing "scroll"
+        try {
+          const pagePathFilters = pagePathsFromPageviews.map(pagePath => ({
+            filter: {
+              fieldName: "pagePath",
+              stringFilter: {
+                matchType: "EXACT",
+                value: pagePath,
+              },
+            },
+          }));
+          
+          scrollEventsResponse = await analyticsDataClient.properties.runReport({
+            property: `properties/${propertyId}`,
+            requestBody: {
+              dateRanges: [
+                {
+                  startDate,
+                  endDate,
+                },
+              ],
+              dimensions: [{ name: "pagePath" }, { name: "eventName" }],
+              metrics: [{ name: "eventCount" }],
+              dimensionFilter: {
+                andGroup: {
+                  expressions: [
+                    {
+                      orGroup: {
+                        expressions: pagePathFilters,
+                      },
+                    },
+                    {
+                      filter: {
+                        fieldName: "eventName",
+                        stringFilter: {
+                          matchType: "CONTAINS",
+                          value: "scroll",
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              limit: 100,
+            },
+          });
+        } catch (fallbackError) {
+          console.warn("Fallback scroll query also failed:", fallbackError.message);
+          scrollEventsResponse = null;
+        }
       }
-    );
+    }
 
     // Get events for this client
     const eventsResponse = await analyticsDataClient.properties.runReport({
@@ -538,7 +745,10 @@ export const getVisitorDetails = async (
           source: {
             source: "N/A", // Removed to stay within dimension limit
           },
-          newVsReturning: dims[4].value || "N/A",
+          newVsReturning: (() => {
+            const value = dims[4].value?.toLowerCase();
+            return value === "returning" ? "returning" : "new";
+          })(),
           session: {
             sessions: parseInt(metrics[0].value),
             pageViews: parseInt(metrics[1].value),
@@ -556,18 +766,29 @@ export const getVisitorDetails = async (
     if (scrollEventsResponse?.data?.rows) {
       scrollEventsResponse.data.rows.forEach((row) => {
         const pagePath = row.dimensionValues[0].value;
-        const eventName = row.dimensionValues[1].value;
+        const scrollValue = row.dimensionValues[1].value; // This could be eventParameter:percent_scrolled or eventName
         const eventCount = parseInt(row.metricValues[0].value);
 
         if (!scrollEventsByPage[pagePath]) {
           scrollEventsByPage[pagePath] = {};
         }
 
-        // Extract scroll percentage from event name (e.g., "scroll_90" -> 90)
-        const scrollMatch = eventName.match(/(\d+)/);
-        if (scrollMatch) {
-          const percentage = parseInt(scrollMatch[1]);
-          scrollEventsByPage[pagePath][percentage] = eventCount;
+        // Try to extract percentage from event parameter or event name
+        let percentage = null;
+        
+        // If it's a numeric value (from event parameter percent_scrolled)
+        if (scrollValue && scrollValue !== "(not set)" && scrollValue !== "" && !isNaN(scrollValue)) {
+          percentage = parseInt(scrollValue);
+        } else if (scrollValue) {
+          // Try to extract from event name (e.g., "scroll_90" -> 90)
+          const scrollMatch = scrollValue.match(/(\d+)/);
+          if (scrollMatch) {
+            percentage = parseInt(scrollMatch[1]);
+          }
+        }
+        
+        if (percentage !== null && percentage >= 0 && percentage <= 100) {
+          scrollEventsByPage[pagePath][percentage] = (scrollEventsByPage[pagePath][percentage] || 0) + eventCount;
         }
       });
     }
@@ -638,10 +859,18 @@ export const getVisitorDetails = async (
 
         // Get max scroll percentage for this page
         const scrollData = scrollEventsByPage[pagePath] || {};
-        const maxScrollPercentage =
-          Object.keys(scrollData).length > 0
-            ? Math.max(...Object.keys(scrollData).map(Number))
-            : 0;
+        let maxScrollPercentage = null;
+        if (Object.keys(scrollData).length > 0) {
+          const percentages = Object.keys(scrollData).map(Number).filter(p => p > 0);
+          if (percentages.length > 0) {
+            maxScrollPercentage = Math.max(...percentages);
+          }
+        }
+
+        // Calculate time on page: userEngagementDuration / screenPageViews
+        const views = parseInt(metrics[0].value);
+        const totalEngagementDuration = parseFloat(metrics[1].value) || 0; // Total engagement time in seconds
+        const timeOnPage = views > 0 ? totalEngagementDuration / views : 0; // Average time per pageview in seconds
 
         return {
           path: pagePath,
@@ -649,12 +878,11 @@ export const getVisitorDetails = async (
           hostname: dims[2].value,
           date: dims[3].value,
           hour: dims[4].value,
-          views: parseInt(metrics[0].value),
-          engagementDuration: parseFloat(metrics[1].value), // Total engagement time in seconds
+          views: views,
+          engagementDuration: totalEngagementDuration,
           avgDuration: parseFloat(metrics[2].value), // Average session duration
-          timeOnPage:
-            parseFloat(metrics[1].value) / parseInt(metrics[0].value) || 0, // Average time per pageview
-          scrollPercentage: maxScrollPercentage,
+          timeOnPage: timeOnPage,
+          scrollPercentage: maxScrollPercentage > 0 ? maxScrollPercentage : null,
           clicks: clickEventsByPage[pagePath] || 0,
           events: eventsByPage[pagePath] || [],
           eventCount: parseInt(metrics[3].value),
@@ -785,6 +1013,11 @@ export const getVisitorsByPage = async (
           dimensions[6].value || "none"
         }-${dimensions[7].value || "none"}-${dimensions[8].value}-${index}`;
 
+        // Normalize newVsReturning value
+        const newVsReturningValue = dimensions[8].value?.toLowerCase();
+        const normalizedNewVsReturning = 
+          newVsReturningValue === "returning" ? "returning" : "new";
+
         return {
           id: compositeId,
           date: dimensions[0].value,
@@ -797,7 +1030,7 @@ export const getVisitorsByPage = async (
           country: dimensions[5].value,
           region: dimensions[6].value || "N/A",
           city: dimensions[7].value || "N/A",
-          newVsReturning: dimensions[8].value,
+          newVsReturning: normalizedNewVsReturning,
           sessionSource: "N/A", // Removed to stay within 9-dimension limit
           firstUserSource: "N/A",
           sessions: parseInt(metrics[0].value),
@@ -898,6 +1131,11 @@ export const getPowerUsers = async (
       const date = dimensions[0].value;
       const landingPage = dimensions[8].value;
 
+      // Normalize newVsReturning value
+      const newVsReturningValue = dimensions[6].value?.toLowerCase();
+      const normalizedNewVsReturning = 
+        newVsReturningValue === "returning" ? "returning" : "new";
+
       if (!userMap.has(userKey)) {
         userMap.set(userKey, {
           landingPage: landingPage, // Store first landing page
@@ -906,7 +1144,7 @@ export const getPowerUsers = async (
           country: dimensions[3].value,
           region: dimensions[4].value || "N/A",
           city: dimensions[5].value || "N/A",
-          newVsReturning: dimensions[6].value,
+          newVsReturning: normalizedNewVsReturning,
           sessionSource: dimensions[7].value || "N/A",
           totalSessions: 0,
           totalPageViews: 0,
@@ -985,7 +1223,8 @@ export const getDailyVisitorTrends = async (
   const propertyId = process.env.GA_PROPERTY_ID;
 
   try {
-    const response = await analyticsDataClient.properties.runReport({
+    // Get new users by date (users who had their first session on each date)
+    const newUsersResponse = await analyticsDataClient.properties.runReport({
       property: `properties/${propertyId}`,
       requestBody: {
         dateRanges: [
@@ -994,7 +1233,29 @@ export const getDailyVisitorTrends = async (
             endDate,
           },
         ],
-        dimensions: [{ name: "date" }, { name: "newVsReturning" }],
+        dimensions: [{ name: "date" }],
+        metrics: [{ name: "newUsers" }],
+        orderBys: [
+          {
+            dimension: {
+              dimensionName: "date",
+            },
+          },
+        ],
+      },
+    });
+
+    // Get active users by date (all distinct users who visited on each date)
+    const activeUsersResponse = await analyticsDataClient.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [
+          {
+            startDate,
+            endDate,
+          },
+        ],
+        dimensions: [{ name: "date" }],
         metrics: [{ name: "activeUsers" }],
         orderBys: [
           {
@@ -1006,30 +1267,29 @@ export const getDailyVisitorTrends = async (
       },
     });
 
-    // Group by date and separate new vs returning
+    // Build a map of date -> new users
+    const newUsersByDate = {};
+    newUsersResponse.data.rows?.forEach((row) => {
+      const date = row.dimensionValues[0].value;
+      const newUsers = parseInt(row.metricValues[0].value);
+      newUsersByDate[date] = newUsers;
+    });
+
+    // Build daily data from active users, calculating returning as activeUsers - newUsers
     const dailyData = {};
 
-    response.data.rows?.forEach((row) => {
+    activeUsersResponse.data.rows?.forEach((row) => {
       const date = row.dimensionValues[0].value;
-      const visitorType = row.dimensionValues[1].value;
-      const users = parseInt(row.metricValues[0].value);
+      const activeUsers = parseInt(row.metricValues[0].value);
+      const newUsers = newUsersByDate[date] || 0;
+      const returningUsers = Math.max(0, activeUsers - newUsers); // Ensure non-negative
 
-      if (!dailyData[date]) {
-        dailyData[date] = {
-          date,
-          new: 0,
-          returning: 0,
-          total: 0,
-        };
-      }
-
-      if (visitorType === "new") {
-        dailyData[date].new = users;
-      } else if (visitorType === "returning") {
-        dailyData[date].returning = users;
-      }
-
-      dailyData[date].total += users;
+      dailyData[date] = {
+        date,
+        new: newUsers,
+        returning: returningUsers,
+        total: activeUsers,
+      };
     });
 
     // Convert to array and sort by date

@@ -44,6 +44,27 @@ const DEVICE_DETECTION_MAP = [
     gpuHints: ["A15"],
   },
   {
+    name: "iPhone 14 mini",
+    dpr: 3.0,
+    screen: { width: 390, height: 844 }, // Portrait
+    screenLandscape: { width: 844, height: 390 }, // Landscape
+    gpuHints: ["A15"],
+  },
+  {
+    name: "iPhone 13 mini",
+    dpr: 3.0,
+    screen: { width: 390, height: 844 }, // Portrait
+    screenLandscape: { width: 844, height: 390 }, // Landscape
+    gpuHints: ["A15"],
+  },
+  {
+    name: "iPhone 12 mini",
+    dpr: 3.0,
+    screen: { width: 390, height: 844 }, // Portrait
+    screenLandscape: { width: 844, height: 390 }, // Landscape
+    gpuHints: ["A14"],
+  },
+  {
     name: "iPhone SE (3rd gen)",
     dpr: 2.0,
     screen: { width: 750, height: 1334 },
@@ -59,6 +80,26 @@ const DEVICE_DETECTION_MAP = [
     name: "iPhone 11",
     dpr: 2.0,
     screen: { width: 828, height: 1792 },
+    gpuHints: ["A13"],
+  },
+  {
+    name: "iPhone XR",
+    dpr: 2.0,
+    screen: { width: 828, height: 1792 },
+    gpuHints: ["A12"],
+  },
+  {
+    name: "iPhone X / XS",
+    dpr: 3.0,
+    screen: { width: 375, height: 812 }, // Portrait
+    screenLandscape: { width: 812, height: 375 }, // Landscape
+    gpuHints: ["A11", "A12"],
+  },
+  {
+    name: "iPhone 11 Pro",
+    dpr: 3.0,
+    screen: { width: 375, height: 812 }, // Portrait
+    screenLandscape: { width: 812, height: 375 }, // Landscape
     gpuHints: ["A13"],
   },
   // iPad models
@@ -79,7 +120,29 @@ const DEVICE_DETECTION_MAP = [
     name: "iPad Air",
     dpr: 2.0,
     screen: { width: 820, height: 1180 },
+    screenLandscape: { width: 1180, height: 820 },
     gpuHints: ["M1", "A14"],
+  },
+  {
+    name: "iPad (10th gen)",
+    dpr: 2.0,
+    screen: { width: 820, height: 1180 },
+    screenLandscape: { width: 1180, height: 820 },
+    gpuHints: ["A14"],
+  },
+  {
+    name: "iPad (9th gen)",
+    dpr: 2.0,
+    screen: { width: 810, height: 1080 },
+    screenLandscape: { width: 1080, height: 810 },
+    gpuHints: ["A13"],
+  },
+  {
+    name: "iPad mini",
+    dpr: 2.0,
+    screen: { width: 744, height: 1133 },
+    screenLandscape: { width: 1133, height: 744 },
+    gpuHints: ["A15", "A12"],
   },
   // Android devices (common models)
   {
@@ -171,8 +234,17 @@ export function detectDeviceModel(characteristics) {
     characteristics = getDeviceCharacteristics();
   }
 
-  const { screenWidth, screenHeight, dpr, gpuRenderer, maxTouchPoints, deviceCategory, operatingSystem, browser } =
+  let { screenWidth, screenHeight, dpr, gpuRenderer, maxTouchPoints, deviceCategory, operatingSystem, browser, screenResolution } =
     characteristics;
+  
+  // Parse screen resolution if it's a string (e.g., "390x844" from GA4)
+  if (!screenWidth && !screenHeight && screenResolution && typeof screenResolution === 'string') {
+    const match = screenResolution.match(/(\d+)x(\d+)/);
+    if (match) {
+      screenWidth = parseInt(match[1]);
+      screenHeight = parseInt(match[2]);
+    }
+  }
 
   // Score each device match
   const matches = DEVICE_DETECTION_MAP.map((device) => {
@@ -180,17 +252,33 @@ export function detectDeviceModel(characteristics) {
     const maxScore = 100;
 
     // Screen resolution match (40 points) - only if we have screen data
+    // Check both portrait and landscape orientations
     if (screenWidth && screenHeight) {
-      const screenMatch =
+      // Check portrait orientation
+      const screenMatchPortrait =
         Math.abs(device.screen.width - screenWidth) <= 10 &&
         Math.abs(device.screen.height - screenHeight) <= 10;
-      if (screenMatch) {
+      
+      // Check landscape orientation (if device has landscape screen defined)
+      const screenMatchLandscape = device.screenLandscape &&
+        Math.abs(device.screenLandscape.width - screenWidth) <= 10 &&
+        Math.abs(device.screenLandscape.height - screenHeight) <= 10;
+      
+      if (screenMatchPortrait || screenMatchLandscape) {
         score += 40;
       } else {
         // Partial match for similar resolutions
         const widthDiff = Math.abs(device.screen.width - screenWidth);
         const heightDiff = Math.abs(device.screen.height - screenHeight);
-        if (widthDiff <= 50 && heightDiff <= 50) {
+        const widthDiffLandscape = device.screenLandscape 
+          ? Math.abs(device.screenLandscape.width - screenWidth)
+          : Infinity;
+        const heightDiffLandscape = device.screenLandscape
+          ? Math.abs(device.screenLandscape.height - screenHeight)
+          : Infinity;
+        
+        if ((widthDiff <= 50 && heightDiff <= 50) || 
+            (widthDiffLandscape <= 50 && heightDiffLandscape <= 50)) {
           score += 20;
         }
       }

@@ -671,7 +671,7 @@ app.get("/api/search-console/top-countries", async (req, res) => {
 // Get page index status
 app.get("/api/search-console/page-index", async (req, res) => {
   try {
-    const { limit = 1000 } = req.query;
+    const { limit = 25000 } = req.query;
     const pages = await getPageIndexStatus(parseInt(limit));
 
     res.json({

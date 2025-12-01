@@ -280,7 +280,7 @@ const fetchSitemap = async (
  * Get all pages with indexing status, comparing against sitemap
  * @param {number} limit - Number of results to return
  */
-export const getPageIndexStatus = async (limit = 1000) => {
+export const getPageIndexStatus = async (limit = 25000) => {
   if (!searchConsoleClient) {
     throw new Error("Search Console client not initialized");
   }
@@ -298,19 +298,25 @@ export const getPageIndexStatus = async (limit = 1000) => {
     );
 
     // Get all pages from search analytics (pages that have appeared in search)
+    // Note: This only returns pages that have appeared in search results, not all indexed pages
+    // Google Search Console API doesn't provide a direct way to get all indexed pages
+    // The Coverage report in GSC UI shows all indexed pages, but this data isn't available via API
     const endDate = new Date().toISOString().split("T")[0];
     // Use a long date range (2 years) to capture most historical data
     const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0];
 
+    // Maximum limit is 25,000 rows per request
+    const maxLimit = Math.min(limit, 25000);
+    
     const response = await searchConsoleClient.searchanalytics.query({
       siteUrl: siteUrl,
       requestBody: {
         startDate: startDate,
         endDate: endDate,
         dimensions: ["page"],
-        rowLimit: limit,
+        rowLimit: maxLimit,
       },
     });
 
@@ -328,50 +334,61 @@ export const getPageIndexStatus = async (limit = 1000) => {
       // Continue without GA data
     }
 
-    // Create a set of indexed URLs (normalized)
+    // Create a set of indexed URLs (normalized) from search analytics
+    // Pages that appear in search analytics are definitely indexed
     const indexedUrlSet = new Set();
-    const indexedPages =
-      response.data.rows?.map((row) => {
-        const pageUrl = row.keys[0];
-        const normalizedUrl = pageUrl
-          .replace(/^https?:\/\/(www\.)?/, "")
-          .replace(/\/$/, "");
-        indexedUrlSet.add(normalizedUrl);
+    const searchAnalyticsPagesMap = new Map(); // Store full page data by normalized URL
+    
+    response.data.rows?.forEach((row) => {
+      const pageUrl = row.keys[0];
+      const normalizedUrl = pageUrl
+        .replace(/^https?:\/\/(www\.)?/, "")
+        .replace(/\/$/, "");
+      indexedUrlSet.add(normalizedUrl);
 
-        // Extract page path from full URL for matching with GA data
-        const pagePath =
-          pageUrl.replace(/^https?:\/\/(www\.)?[^\/]+/, "") || "/";
-        const avgDuration = avgDurationMap[pagePath] || null;
-        const pageData = pageVisitorsMap[pagePath] || {
-          uniqueVisitors: 0,
-          bounceRate: 0,
-          sessions: 0,
-        };
+      // Extract page path from full URL for matching with GA data
+      const pagePath =
+        pageUrl.replace(/^https?:\/\/(www\.)?[^\/]+/, "") || "/";
+      const avgDuration = avgDurationMap[pagePath] || null;
+      const pageData = pageVisitorsMap[pagePath] || {
+        uniqueVisitors: 0,
+        bounceRate: 0,
+        sessions: 0,
+      };
 
-        return {
-          url: pageUrl,
-          indexed: true, // If it appears in search analytics, it's indexed
-          clicks: row.clicks || 0,
-          impressions: row.impressions || 0,
-          ctr: row.ctr || 0,
-          position: row.position || 0,
-          category: categorizePage(pageUrl),
-          avgDuration: avgDuration,
-          uniqueVisitors: pageData.uniqueVisitors || 0,
-          bounceRate: pageData.bounceRate || 0,
-          sessions: pageData.sessions || 0,
-        };
-      }) || [];
+      searchAnalyticsPagesMap.set(normalizedUrl, {
+        url: pageUrl,
+        indexed: true, // If it appears in search analytics, it's indexed
+        clicks: row.clicks || 0,
+        impressions: row.impressions || 0,
+        ctr: row.ctr || 0,
+        position: row.position || 0,
+        category: categorizePage(pageUrl),
+        avgDuration: avgDuration,
+        uniqueVisitors: pageData.uniqueVisitors || 0,
+        bounceRate: pageData.bounceRate || 0,
+        sessions: pageData.sessions || 0,
+      });
+    });
 
-    // Find pages in sitemap that are not indexed
-    const notIndexedPages = sitemapUrls
-      .filter((url) => {
-        const normalizedUrl = url
-          .replace(/^https?:\/\/(www\.)?/, "")
-          .replace(/\/$/, "");
-        return !indexedUrlSet.has(normalizedUrl);
-      })
-      .map((url) => {
+    // Process all sitemap URLs
+    // Pages in sitemap that appear in search analytics = indexed
+    // Pages in sitemap that don't appear in search analytics = not indexed (or not yet appearing in search)
+    const allPagesMap = new Map();
+
+    // First, add all pages from search analytics (these are definitely indexed)
+    searchAnalyticsPagesMap.forEach((pageData, normalizedUrl) => {
+      allPagesMap.set(normalizedUrl, pageData);
+    });
+
+    // Then, add pages from sitemap that aren't in search analytics
+    sitemapUrls.forEach((url) => {
+      const normalizedUrl = url
+        .replace(/^https?:\/\/(www\.)?/, "")
+        .replace(/\/$/, "");
+      
+      // Only add if not already in the map (from search analytics)
+      if (!allPagesMap.has(normalizedUrl)) {
         // Extract page path from full URL for matching with GA data
         const pagePath = url.replace(/^https?:\/\/(www\.)?[^\/]+/, "") || "/";
         const avgDuration = avgDurationMap[pagePath] || null;
@@ -381,9 +398,9 @@ export const getPageIndexStatus = async (limit = 1000) => {
           sessions: 0,
         };
 
-        return {
+        allPagesMap.set(normalizedUrl, {
           url: url,
-          indexed: false,
+          indexed: false, // Not appearing in search analytics, so marked as not indexed
           clicks: 0,
           impressions: 0,
           ctr: 0,
@@ -393,14 +410,17 @@ export const getPageIndexStatus = async (limit = 1000) => {
           uniqueVisitors: pageData.uniqueVisitors || 0,
           bounceRate: pageData.bounceRate || 0,
           sessions: pageData.sessions || 0,
-        };
-      });
+        });
+      }
+    });
 
-    // Combine indexed and non-indexed pages
-    const allPages = [...indexedPages, ...notIndexedPages];
+    // Convert map to array
+    const allPages = Array.from(allPagesMap.values());
+    const indexedPages = allPages.filter(p => p.indexed);
+    const notIndexedPages = allPages.filter(p => !p.indexed);
 
     // Calculate statistics
-    const totalPages = sitemapUrls.length;
+    const totalPages = allPages.length;
     const indexedCount = indexedPages.length;
     const notIndexedCount = notIndexedPages.length;
     const notIndexedPercent =
@@ -413,6 +433,9 @@ export const getPageIndexStatus = async (limit = 1000) => {
         indexedCount,
         notIndexedCount,
         notIndexedPercent: notIndexedPercent.toFixed(2),
+        // Note: Pages marked as "indexed" have appeared in search results.
+        // Pages marked as "not indexed" are in the sitemap but haven't appeared in search results.
+        // Some "not indexed" pages may actually be indexed but just haven't appeared in search yet.
       },
     };
   } catch (error) {

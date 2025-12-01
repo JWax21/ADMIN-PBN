@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IoCloseCircleOutline } from "react-icons/io5";
-import { getDeviceDetectionReport } from "../utils/deviceDetection";
+import { getDeviceDetectionReport, detectDeviceModel } from "../utils/deviceDetection";
 import "./VisitorDetailsPanel.css";
 
 const VisitorDetailsPanel = ({ visitor, onClose }) => {
@@ -18,13 +18,35 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
   // Run device detection when panel opens
   useEffect(() => {
     try {
-      const report = getDeviceDetectionReport();
-      setDeviceDetection(report);
+      // Use screen resolution from visitor data if available
+      const primarySession = visitor.sessions?.[0] || {};
+      const device = primarySession.device || {};
+      const screenResolution = device.screenResolution;
+      
+      // If we have screen resolution from GA4, use it for detection
+      if (screenResolution && screenResolution !== "N/A") {
+        const characteristics = {
+          screenResolution: screenResolution,
+          deviceCategory: device.deviceCategory,
+          operatingSystem: device.osVersion,
+          browser: device.browserVersion,
+        };
+        const detection = detectDeviceModel(characteristics);
+        setDeviceDetection({
+          characteristics,
+          detection,
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        // Fall back to client-side detection
+        const report = getDeviceDetectionReport();
+        setDeviceDetection(report);
+      }
     } catch (error) {
       console.warn("Device detection failed:", error);
       setDeviceDetection({ error: "Detection unavailable" });
     }
-  }, []);
+  }, [visitor]);
 
   const formatNumber = (num) => {
     if (!num && num !== 0) return "N/A";
@@ -54,6 +76,81 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
     const date = formatDate(dateStr);
     const hour = hourStr ? `${hourStr}:00` : "";
     return hour ? `${date} ${hour}` : date;
+  };
+
+  const formatTime = (hourStr) => {
+    if (!hourStr && hourStr !== 0) return "N/A";
+    const hourNum = parseInt(hourStr);
+    if (isNaN(hourNum) || hourNum < 0 || hourNum > 23) return "N/A";
+    
+    const period = hourNum >= 12 ? "PM" : "AM";
+    const displayHour = hourNum === 0 ? 12 : hourNum > 12 ? hourNum - 12 : hourNum;
+    return `${displayHour}:00 ${period}`;
+  };
+
+  // Convert state name to 2-letter abbreviation
+  const getStateAbbreviation = (stateName) => {
+    if (!stateName || stateName === "N/A" || stateName === "(not set)") return null;
+    
+    const stateMap = {
+      "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
+      "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+      "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA",
+      "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+      "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO",
+      "Montana": "MT", "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+      "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
+      "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+      "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
+      "Virginia": "VA", "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY",
+      "District of Columbia": "DC"
+    };
+    
+    // Check exact match first
+    if (stateMap[stateName]) {
+      return stateMap[stateName];
+    }
+    
+    // Check if it's already an abbreviation (2 letters)
+    if (stateName.length === 2 && /^[A-Z]{2}$/.test(stateName)) {
+      return stateName;
+    }
+    
+    // Try case-insensitive match
+    const stateNameLower = stateName.toLowerCase();
+    for (const [fullName, abbr] of Object.entries(stateMap)) {
+      if (fullName.toLowerCase() === stateNameLower) {
+        return abbr;
+      }
+    }
+    
+    return null;
+  };
+
+  const formatLocation = (city, region, country) => {
+    // For non-US locations, only show country
+    if (country && country !== "N/A" && country !== "United States") {
+      return country;
+    }
+    
+    // For US locations, show city, state abbreviation, country
+    const parts = [];
+    
+    if (city && city !== "N/A" && city !== "(not set)") {
+      parts.push(city);
+    }
+    
+    if (region && region !== "N/A" && region !== "(not set)") {
+      const stateAbbr = getStateAbbreviation(region);
+      if (stateAbbr) parts.push(stateAbbr);
+    }
+    
+    if (country && country !== "N/A") {
+      const countryDisplay = country === "United States" ? "US" : country;
+      parts.push(countryDisplay);
+    }
+    
+    return parts.length > 0 ? parts.join(", ") : "N/A";
   };
 
   // Parse page path to extract type and page name
@@ -202,6 +299,16 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
   const source = primarySession.source || {};
   const network = primarySession.network || {};
 
+  // Get location and time for header from clicked row data
+  // Use visitor object properties directly (passed from row click)
+  const city = visitor.city || location.city;
+  const region = visitor.region || location.region;
+  const country = visitor.country || location.country;
+  const hour = visitor.hour || primarySession.hour;
+  
+  const locationStr = formatLocation(city, region, country);
+  const timeStr = formatTime(hour);
+
   console.log("Primary session:", primarySession);
 
   return createPortal(
@@ -210,48 +317,32 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
       <div className="panel-content">
         <div className="panel-header">
           <div className="header-left">
-            <h2>Visitor Details</h2>
-            <span className="client-id-badge">
-              {visitor.visitorId?.substring(0, 20)}...
-            </span>
+            <h2 className="visitor-header-title">
+              {locationStr} | {timeStr}
+            </h2>
           </div>
-          <button onClick={onClose} className="close-btn">
-            <IoCloseCircleOutline size={24} />
-          </button>
+          <div className="header-right">
+            <div className="header-tags">
+              <span className="header-tag">
+                Pages ({formatNumber(visitor.pageViews || visitor.summary?.totalPageViews || 0)})
+              </span>
+              <span className="header-tag">
+                {formatDuration(
+                  visitor.totalDuration || 
+                  primarySession.session?.totalDuration || 
+                  primarySession.session?.userEngagementDuration ||
+                  visitor.summary?.totalDuration || 
+                  0
+                )}
+              </span>
+            </div>
+            <button onClick={onClose} className="close-btn">
+              <IoCloseCircleOutline size={24} />
+            </button>
+          </div>
         </div>
 
         <div className="panel-body">
-          {/* Summary Section */}
-          <section className="detail-section">
-            <h3>Summary</h3>
-            <div className="summary-grid">
-              <div className="summary-item">
-                <span className="summary-label">Total Sessions</span>
-                <span className="summary-value">
-                  {formatNumber(visitor.summary?.totalSessions || 0)}
-                </span>
-              </div>
-              <div className="summary-item">
-                <span className="summary-label">Total Page Views</span>
-                <span className="summary-value">
-                  {formatNumber(visitor.summary?.totalPageViews || 0)}
-                </span>
-              </div>
-              <div className="summary-item">
-                <span className="summary-label">Total Events</span>
-                <span className="summary-value">
-                  {formatNumber(visitor.summary?.totalEvents || 0)}
-                </span>
-              </div>
-              <div className="summary-item">
-                <span className="summary-label">Avg. Session Duration</span>
-                <span className="summary-value">
-                  {formatDuration(visitor.summary?.avgSessionDuration || 0)}
-                </span>
-              </div>
-            </div>
-          </section>
-
           {/* Network */}
           <section className="detail-section">
             <div className="info-line">
@@ -272,46 +363,74 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
             <div className="info-line">
               <span className="section-title">Device + Technology</span>
               <span className="info-item-inline">
-                <span className="info-label">Screen</span>
                 <span className="info-value">{device.screenResolution || "N/A"}</span>
               </span>
               <span className="info-item-inline">
-                <span className="info-label">Device</span>
                 <span className="info-value">
                   {(() => {
-                    const brand = device.brand && device.brand !== "N/A" && device.brand !== "N/A (Desktop)" ? device.brand : null;
+                    let brand = device.brand && device.brand !== "N/A" && device.brand !== "N/A (Desktop)" ? device.brand : null;
                     const model = device.model && device.model !== "N/A" && device.model !== "N/A (Desktop)" ? device.model : null;
-                    const parts = [];
-                    if (brand) parts.push(brand);
-                    if (model) parts.push(model);
-                    return parts.length > 0 ? parts.join(", ") : "N/A";
+                    
+                    // If we have a detected model, use it
+                    const detectedModel = deviceDetection?.detection?.detectedModel && deviceDetection.detection.detectedModel !== "Unknown" 
+                      ? deviceDetection.detection.detectedModel 
+                      : null;
+                    
+                    // If detected model is an iPhone, fall back to "Apple" for brand
+                    if (detectedModel && detectedModel.toLowerCase().includes("iphone")) {
+                      if (!brand || brand === "N/A") {
+                        brand = "Apple";
+                      }
+                    }
+                    
+                    // If detected model is an iPad, fall back to "Apple" for brand
+                    if (detectedModel && detectedModel.toLowerCase().includes("ipad")) {
+                      if (!brand || brand === "N/A") {
+                        brand = "Apple";
+                      }
+                    }
+                    
+                    // If we have OS info suggesting desktop, identify it
+                    const os = device.os || device.osVersion || "";
+                    const isDesktop = os.toLowerCase().includes("windows") || 
+                                     os.toLowerCase().includes("mac") || 
+                                     os.toLowerCase().includes("linux") ||
+                                     os.toLowerCase().includes("chrome os");
+                    
+                    // If we have OS info suggesting iPad
+                    const isIPad = os.toLowerCase().includes("ipados") || 
+                                  (detectedModel && detectedModel.toLowerCase().includes("ipad"));
+                    
+                    const deviceParts = [];
+                    if (brand) deviceParts.push(brand);
+                    if (model) deviceParts.push(model);
+                    let deviceValue = deviceParts.length > 0 ? deviceParts.join(" ") : (brand || null);
+                    
+                    // If no device info but we know it's desktop
+                    if (!deviceValue && isDesktop) {
+                      deviceValue = "Desktop";
+                    }
+                    
+                    // If no device info but we know it's iPad
+                    if (!deviceValue && isIPad) {
+                      deviceValue = "iPad";
+                    }
+                    
+                    if (!deviceValue) {
+                      deviceValue = "N/A";
+                    }
+                    
+                    if (detectedModel) {
+                      return `${deviceValue} | ${detectedModel}`;
+                    }
+                    return deviceValue;
                   })()}
                 </span>
               </span>
               <span className="info-item-inline">
-                <span className="info-label">Detected Model</span>
                 <span className="info-value">
-                  {deviceDetection?.detection?.detectedModel ? (
-                    <>
-                      {deviceDetection.detection.detectedModel}
-                      {deviceDetection.detection.confidence && deviceDetection.detection.confidence < 100 && (
-                        <span style={{ fontSize: "0.75rem", color: "#9ca3af", marginLeft: "0.25rem" }}>
-                          ({deviceDetection.detection.confidence}% confidence)
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    "N/A (Requires client-side tracking)"
-                  )}
+                  {device.os || device.osVersion || "N/A"} | {device.browser || device.browserVersion || "N/A"}
                 </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Browser</span>
-                <span className="info-value">{device.browserVersion || "N/A"}</span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">OS</span>
-                <span className="info-value">{device.osVersion || "N/A"}</span>
               </span>
               <span className="info-item-inline">
                 <span className="info-label">App Version</span>
@@ -320,42 +439,6 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
               <span className="info-item-inline">
                 <span className="info-label">Limited Ad Tracking</span>
                 <span className="info-value">{device.isLimitedAdTracking || "N/A"}</span>
-              </span>
-            </div>
-          </section>
-
-          {/* Location */}
-          <section className="detail-section">
-            <div className="info-line">
-              <span className="section-title">Location</span>
-              <span className="info-item-inline">
-                <span className="info-label">Location</span>
-                <span className="info-value">
-                  {(() => {
-                    const city = location.city && location.city !== "N/A" && location.city !== "(not set)" ? location.city : "";
-                    const region = location.region && location.region !== "N/A" && location.region !== "(not set)" ? location.region : "";
-                    const country = location.country && location.country !== "N/A" ? location.country : "";
-                    
-                    const parts = [];
-                    if (city) parts.push(city);
-                    if (region) parts.push(region);
-                    if (country) parts.push(country);
-                    
-                    return parts.length > 0 ? parts.join(", ") : "N/A";
-                  })()}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Metro Area (DMA)</span>
-                <span className="info-value">{location.metro && location.metro !== "N/A" ? location.metro : "N/A"}</span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Latitude / Longitude</span>
-                <span className="info-value">
-                  {location.latitude && location.longitude && location.latitude !== "N/A" && location.longitude !== "N/A"
-                    ? `${location.latitude}, ${location.longitude}`
-                    : "N/A (Not available in GA4)"}
-                </span>
               </span>
             </div>
           </section>
@@ -389,55 +472,6 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
             </div>
           </section>
 
-          {/* Session Information */}
-          <section className="detail-section">
-            <div className="info-line">
-              <span className="section-title">Session Information</span>
-              <span className="info-item-inline">
-                <span className="info-label">Visitor Type</span>
-                <span className="info-value">
-                  {primarySession.newVsReturning === "new" ? "New Visitor" : primarySession.newVsReturning === "returning" ? "Returning Visitor" : "N/A"}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Engaged Session</span>
-                <span className="info-value">
-                  {primarySession.session?.engaged ? "Yes" : "No"}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Total Sessions</span>
-                <span className="info-value">
-                  {formatNumber(primarySession.session?.sessions || 0)}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Page Views</span>
-                <span className="info-value">
-                  {formatNumber(primarySession.session?.pageViews || 0)}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Avg. Session Duration</span>
-                <span className="info-value">
-                  {formatDuration(primarySession.session?.avgDuration || 0)}
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Bounce Rate</span>
-                <span className="info-value">
-                  {primarySession.session?.bounceRate?.toFixed(1) || 0}%
-                </span>
-              </span>
-              <span className="info-item-inline">
-                <span className="info-label">Event Count</span>
-                <span className="info-value">
-                  {formatNumber(primarySession.session?.eventCount || 0)}
-                </span>
-              </span>
-            </div>
-          </section>
-
           {/* Pageviews - Each Page Visit */}
           {visitor.pageviews && visitor.pageviews.length > 0 && (
             <section className="detail-section">
@@ -465,11 +499,11 @@ const VisitorDetailsPanel = ({ visitor, onClose }) => {
                           <td>{formatDateTime(pv.date, pv.hour)}</td>
                           <td className="time-cell">
                             <span className="time-value">
-                              {formatDuration(pv.timeOnPage || 0)}
+                              {pv.timeOnPage && pv.timeOnPage > 0 ? formatDuration(pv.timeOnPage) : "N/A"}
                             </span>
                           </td>
                           <td className="number-cell">
-                            {pv.scrollPercentage > 0 ? `${pv.scrollPercentage}%` : "N/A"}
+                            {pv.scrollPercentage !== null && pv.scrollPercentage !== undefined && pv.scrollPercentage > 0 ? `${pv.scrollPercentage}%` : "N/A"}
                           </td>
                           <td className="number-cell">
                             {formatNumber(pv.clicks || 0)}
