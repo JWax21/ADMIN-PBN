@@ -568,7 +568,22 @@ app.get("/api/analytics/sessions", async (req, res) => {
   try {
     const { startDate = "30daysAgo", endDate = "today" } = req.query;
     const data = await getSessionMetrics(startDate, endDate);
-    res.json({ success: true, data });
+    
+    // Also get today's metrics for the Today card
+    let todayMetrics = null;
+    try {
+      todayMetrics = await getSessionMetrics("today", "today");
+    } catch (error) {
+      console.warn("Error fetching today's metrics:", error.message);
+    }
+    
+    res.json({ 
+      success: true, 
+      data: {
+        ...data,
+        today: todayMetrics,
+      }
+    });
   } catch (error) {
     console.error("Error fetching session metrics:", error);
     res.status(500).json({

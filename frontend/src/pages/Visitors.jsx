@@ -3,6 +3,8 @@ import apiClient from "../api/axios";
 import VisitorDetailsPanel from "../components/VisitorDetailsPanel";
 import { detectDeviceModel } from "../utils/deviceDetection";
 import { IoIosArrowUp } from "react-icons/io";
+import { HiDownload } from "react-icons/hi";
+import * as XLSX from "xlsx";
 import "./Visitors.css";
 
 const Visitors = () => {
@@ -17,11 +19,14 @@ const Visitors = () => {
   const [hoveredBar, setHoveredBar] = useState(null);
   const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
   const periodDropdownRef = useRef(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50);
 
   useEffect(() => {
     fetchVisitors();
     fetchDailyTrends();
     fetchMetrics();
+    setCurrentPage(1); // Reset to first page when date range changes
   }, [dateRange]);
 
   useEffect(() => {
@@ -52,7 +57,7 @@ const Visitors = () => {
       const params = {
         startDate: dateRange,
         endDate: "today",
-        limit: 100,
+        limit: 10000, // Increased limit to support export of all visitors
       };
 
       const response = await apiClient.get("/api/visitors", { params });
@@ -396,6 +401,86 @@ const Visitors = () => {
     return dateStr;
   };
 
+  // Pagination logic
+  const totalPages = Math.ceil(visitors.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentVisitors = visitors.slice(startIndex, endIndex);
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      // Scroll to top of table
+      const tableContainer = document.querySelector('.visitors-table-container');
+      if (tableContainer) {
+        tableContainer.scrollTop = 0;
+      }
+    }
+  };
+
+  // Export to XLSX
+  const exportToXLSX = () => {
+    // Prepare data for export
+    const exportData = visitors.map((visitor) => {
+      const pageType = getPageType(visitor.landingPage || "");
+      const slug = formatSlug(pageType.remainingSlug);
+      
+      return {
+        Source: visitor.sessionSource || "N/A",
+        User: visitor.newVsReturning === "new" ? "New" : visitor.newVsReturning === "returning" ? "Return" : "N/A",
+        Date: formatDate(visitor.date),
+        Time: formatTime(visitor.hour),
+        Location: formatLocation(visitor.city, visitor.region, visitor.country),
+        "First Page Type": pageType.type,
+        "First Page Slug": slug,
+        Pages: visitor.pageViews || 0,
+        Duration: formatDuration(visitor.totalDuration || 0),
+        City: visitor.city || "N/A",
+        Region: visitor.region || "N/A",
+        Country: visitor.country || "N/A",
+        Browser: visitor.browser || "N/A",
+        "Device Category": visitor.deviceCategory || "N/A",
+        "Device Brand": visitor.deviceBrand || "N/A",
+        "Device Model": visitor.deviceModel || "N/A",
+        "Operating System": visitor.operatingSystem || "N/A",
+      };
+    });
+
+    // Create workbook and worksheet
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Visitors");
+
+    // Set column widths
+    const colWidths = [
+      { wch: 20 }, // Source
+      { wch: 10 }, // User
+      { wch: 12 }, // Date
+      { wch: 12 }, // Time
+      { wch: 30 }, // Location
+      { wch: 15 }, // First Page Type
+      { wch: 40 }, // First Page Slug
+      { wch: 8 },  // Pages
+      { wch: 12 }, // Duration
+      { wch: 20 }, // City
+      { wch: 20 }, // Region
+      { wch: 15 }, // Country
+      { wch: 15 }, // Browser
+      { wch: 15 }, // Device Category
+      { wch: 15 }, // Device Brand
+      { wch: 20 }, // Device Model
+      { wch: 20 }, // Operating System
+    ];
+    ws["!cols"] = colWidths;
+
+    // Generate filename with date range
+    const dateRangeLabel = dateRange === "7daysAgo" ? "7D" : dateRange === "30daysAgo" ? "30D" : dateRange === "90daysAgo" ? "90D" : "365D";
+    const filename = `visitors_${dateRangeLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    // Save file
+    XLSX.writeFile(wb, filename);
+  };
+
   const isToday = (dateStr) => {
     if (!dateStr || dateStr.length !== 8) return false;
     const today = new Date();
@@ -495,11 +580,13 @@ const Visitors = () => {
         
         {metrics && (
           <div className="visitors-metrics">
-            {dailyTrends.length > 0 && (
+            {dailyTrends.length > 0 && metrics.today && (
               <div className="visitor-metric-card">
                 <div className="visitor-metric-label">Today</div>
                 <div className="visitor-metric-value">
-                  {formatNumber(dailyTrends[dailyTrends.length - 1]?.total || 0)}
+                  <span className="metric-unique">{formatNumber(metrics.today.activeUsers || 0)}</span>
+                  <span className="metric-separator">|</span>
+                  <span className="metric-engaged">{formatNumber(metrics.today.engagedUsers || 0)}</span>
                 </div>
               </div>
             )}
@@ -514,7 +601,9 @@ const Visitors = () => {
                   : "Total Unique Visitors"}
               </div>
               <div className="visitor-metric-value">
-                {formatNumber(metrics.activeUsers)}
+                <span className="metric-unique">{formatNumber(metrics.activeUsers)}</span>
+                <span className="metric-separator">|</span>
+                <span className="metric-engaged">{formatNumber(metrics.engagedUsers || 0)}</span>
               </div>
             </div>
             <div className="visitor-metric-card">
@@ -547,10 +636,7 @@ const Visitors = () => {
               {/* Y-axis labels */}
               <div className="y-axis">
                 {(() => {
-                  const maxTotal = Math.max(
-                    ...dailyTrends.map((d) => d.total),
-                    100
-                  );
+                  const maxTotal = 500;
                   const minTotal = 0;
                   const range = maxTotal - minTotal;
                   const steps = 5;
@@ -578,10 +664,7 @@ const Visitors = () => {
                 {/* Stacked Bars */}
                 <div className="trend-bars">
                   {(() => {
-                    const maxTotal = Math.max(
-                      ...dailyTrends.map((d) => d.total),
-                      100
-                    );
+                    const maxTotal = 500;
                     return dailyTrends.slice(-30).map((day, index) => {
                       // Total bar height as percentage of container
                       const totalBarHeight = (day.total / maxTotal) * 100;
@@ -667,6 +750,15 @@ const Visitors = () => {
       </div>
 
       <div className="card">
+        <div className="visitors-table-header">
+          <div className="visitors-table-title">
+            <h2>Visitors</h2>
+            <span className="visitors-count">({formatNumber(visitors.length)} total)</span>
+          </div>
+          <button className="export-button" onClick={exportToXLSX}>
+            <HiDownload />
+          </button>
+        </div>
         <div className="visitors-table-container">
           <table className="visitors-table">
             <thead>
@@ -682,8 +774,8 @@ const Visitors = () => {
               </tr>
             </thead>
             <tbody>
-              {visitors.length > 0 ? (
-                visitors.map((visitor, index) => (
+              {currentVisitors.length > 0 ? (
+                currentVisitors.map((visitor, index) => (
                   <tr
                     key={index}
                     onClick={() => handleRowClick(visitor)}
@@ -785,6 +877,34 @@ const Visitors = () => {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {visitors.length > itemsPerPage && (
+          <div className="pagination-controls">
+            <button
+              className="pagination-button"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            <div className="pagination-info">
+              <span>
+                Page {currentPage} of {totalPages}
+              </span>
+              <span className="pagination-count">
+                Showing {startIndex + 1}-{Math.min(endIndex, visitors.length)} of {formatNumber(visitors.length)}
+              </span>
+            </div>
+            <button
+              className="pagination-button"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
 
       {isPanelOpen && selectedVisitor && (
