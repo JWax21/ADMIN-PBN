@@ -53,9 +53,13 @@ export const initializeSearchConsole = () => {
     }
 
     // Create auth client
+    // Note: URL Inspection API requires webmasters scope (readonly is sufficient for inspection)
     const auth = new google.auth.GoogleAuth({
       credentials,
-      scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+      scopes: [
+        "https://www.googleapis.com/auth/webmasters.readonly",
+        "https://www.googleapis.com/auth/webmasters",
+      ],
     });
 
     searchConsoleClient = google.searchconsole({
@@ -109,9 +113,11 @@ export const getSearchPerformance = async (
     });
 
     const rows = response.data.rows || [];
+    const totalClicksFromAPI = rows.reduce((sum, row) => sum + (row.clicks || 0), 0);
+    console.log(`[getSearchPerformance] Date: ${startDateFormatted} to ${endDateFormatted}, Rows returned: ${rows.length}, Total clicks from API: ${totalClicksFromAPI}`);
 
     return {
-      totalClicks: rows.reduce((sum, row) => sum + (row.clicks || 0), 0),
+      totalClicks: totalClicksFromAPI,
       totalImpressions: rows.reduce(
         (sum, row) => sum + (row.impressions || 0),
         0
@@ -450,7 +456,7 @@ export const getPageIndexStatus = async (limit = 25000) => {
  * @param {string} url - Page URL
  * @returns {string} Category (tool, about, reviews, rankings, directory, landing, other)
  */
-const categorizePage = (url) => {
+export const categorizePage = (url) => {
   if (!url) return "other";
 
   const lowerUrl = url.toLowerCase();
@@ -523,6 +529,18 @@ export const getPageRankings = async (
 
     const startDateFormatted = formatDate(startDate);
 
+    // First, get total clicks without dimensions to verify the total
+    const totalResponse = await searchConsoleClient.searchanalytics.query({
+      siteUrl: siteUrl,
+      requestBody: {
+        startDate: startDateFormatted,
+        endDate: endDateFormatted,
+        rowLimit: 1,
+      },
+    });
+    const totalClicksNoDimensions = totalResponse.data.rows?.[0]?.clicks || 0;
+    console.log(`[getPageRankings] Total clicks (no dimensions): ${totalClicksNoDimensions}`);
+
     const response = await searchConsoleClient.searchanalytics.query({
       siteUrl: siteUrl,
       requestBody: {
@@ -539,15 +557,19 @@ export const getPageRankings = async (
       },
     });
 
+    const rows = response.data.rows || [];
+    const totalClicksFromAPI = rows.reduce((sum, row) => sum + (row.clicks || 0), 0);
+    console.log(`[getPageRankings] Date: ${startDateFormatted} to ${endDateFormatted}, Rows returned: ${rows.length}, Total clicks from API (with dimensions): ${totalClicksFromAPI}, Total clicks (no dimensions): ${totalClicksNoDimensions}`);
+
     return (
-      response.data.rows?.map((row) => ({
+      rows.map((row) => ({
         query: row.keys[0],
         page: row.keys[1],
         clicks: row.clicks || 0,
         impressions: row.impressions || 0,
         ctr: row.ctr || 0,
         position: row.position || 0,
-      })) || []
+      }))
     );
   } catch (error) {
     console.error("Error fetching page rankings:", error);
@@ -671,6 +693,231 @@ function formatDate(dateStr) {
   return dateStr;
 }
 
+/**
+ * Fetch page title from HTML
+ * @param {string} url - URL to fetch
+ * @returns {Promise<string>} Page title or URL as fallback
+ */
+const fetchPageTitle = async (url) => {
+  try {
+    const response = await axios.get(url, {
+      timeout: 5000,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      },
+    });
+    const html = response.data;
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch && titleMatch[1]) {
+      return titleMatch[1].trim();
+    }
+  } catch (error) {
+    // Silently fail - we'll use URL as fallback
+  }
+  return url;
+};
+
+/**
+ * Check if a single URL is indexed using Google Search Console URL Inspection API
+ * @param {string} url - URL to check
+ * @param {Object} supabaseClient - Supabase client instance (not used but kept for consistency)
+ * @returns {Promise<Object>} Object with url, title, and google_index_status
+ */
+export const checkUrlIndexStatus = async (url, supabaseClient) => {
+  if (!searchConsoleClient) {
+    throw new Error("Search Console client not initialized");
+  }
+
+  const siteUrl = process.env.SEARCH_CONSOLE_SITE_URL;
+
+  try {
+    // Use URL Inspection API
+    // POST https://searchconsole.googleapis.com/v1/urlInspection/index:inspect
+    // The method in googleapis is urlInspection.index.inspect
+    let response;
+    try {
+      response = await searchConsoleClient.urlInspection.index.inspect({
+        requestBody: {
+          inspectionUrl: url,
+          siteUrl: siteUrl,
+          languageCode: "en-US",
+        },
+      });
+    } catch (apiError) {
+      console.error(`URL Inspection API error for ${url}:`, apiError.message);
+      console.error("API Error details:", apiError);
+      throw apiError;
+    }
+
+    // Response structure per documentation:
+    // { inspectionResult: { indexStatusResult: { indexingState, verdict, ... } } }
+    const inspectionResult = response.data?.inspectionResult;
+    const indexResult = inspectionResult?.indexStatusResult;
+
+    // Determine index status from indexStatusResult
+    // Per documentation: verdict = high-level verdict about whether URL IS indexed
+    // indexingState = whether indexing is allowed or blocked
+    let indexStatus = "not_indexed";
+
+    if (indexResult) {
+      // Primary check: verdict tells us if the URL IS indexed
+      if (indexResult.verdict) {
+        const verdict = indexResult.verdict;
+        if (verdict === "PASS") {
+          indexStatus = "indexed";
+        } else if (verdict === "PARTIAL") {
+          indexStatus = "discovered"; // Discovered but not fully indexed
+        } else if (verdict === "FAIL" || verdict === "NEUTRAL") {
+          indexStatus = "not_indexed";
+        }
+      }
+
+      // Secondary check: indexingState tells us if indexing is allowed
+      // If indexingState is BLOCKED, then it's definitely not_indexed
+      if (indexResult.indexingState) {
+        const indexingState = indexResult.indexingState;
+        if (indexingState === "BLOCKED_BY_META_TAG" || 
+            indexingState === "BLOCKED_BY_HTTP_HEADER" ||
+            indexingState === "BLOCKED_BY_ROBOTS_TXT") {
+          indexStatus = "not_indexed";
+        }
+        // INDEXING_ALLOWED means indexing is allowed, but doesn't guarantee it's indexed
+        // We still rely on verdict to determine if it's actually indexed
+      }
+
+      // Log for debugging
+      console.log(`[URL Inspection] ${url}: verdict=${indexResult.verdict || 'N/A'}, indexingState=${indexResult.indexingState || 'N/A'}, final=${indexStatus}`);
+    } else {
+      console.warn(`[URL Inspection] No indexStatusResult in response for ${url}. Response keys:`, Object.keys(response.data || {}));
+    }
+
+    // Fetch title from the page HTML
+    const title = await fetchPageTitle(url);
+
+    return {
+      url,
+      title: title || url, // Use URL as fallback title
+      google_index_status: indexStatus,
+    };
+  } catch (error) {
+    console.error(`Error checking URL ${url}:`, error.message);
+    // Try to fetch title even on error
+    const title = await fetchPageTitle(url);
+    // Return not_indexed on error
+    return {
+      url,
+      title: title || url,
+      google_index_status: "not_indexed",
+    };
+  }
+};
+
+/**
+ * Sync all sitemap URLs to Supabase with their index status
+ * @param {Object} supabaseClient - Supabase client instance
+ * @param {Function} progressCallback - Optional callback for progress updates
+ * @returns {Promise<Object>} Sync results
+ */
+export const syncSitemapUrlsToSupabase = async (
+  supabaseClient,
+  progressCallback = null
+) => {
+  if (!searchConsoleClient) {
+    throw new Error("Search Console client not initialized");
+  }
+
+  try {
+    // Fetch all sitemap URLs
+    const sitemapUrls = await fetchSitemap();
+    console.log(`Found ${sitemapUrls.length} URLs in sitemap`);
+
+    let processed = 0;
+    let indexed = 0;
+    let notIndexed = 0;
+    let errors = 0;
+
+    // Process URLs in batches to respect rate limits
+    // Rate limit: 600 queries per minute = 10 per second
+    // We'll process 5 per second to be safe
+    const batchSize = 5;
+    const delayBetweenBatches = 1000; // 1 second
+
+    for (let i = 0; i < sitemapUrls.length; i += batchSize) {
+      const batch = sitemapUrls.slice(i, i + batchSize);
+      const batchPromises = batch.map(async (url) => {
+        try {
+          const result = await checkUrlIndexStatus(url, supabaseClient);
+
+          // Upsert to Supabase
+          const { error: upsertError } = await supabaseClient
+            .from("google_index_pages")
+            .upsert(
+              {
+                url: result.url,
+                title: result.title,
+                google_index_status: result.google_index_status,
+                created_at: new Date().toISOString(),
+              },
+              {
+                onConflict: "url",
+                ignoreDuplicates: false,
+              }
+            );
+
+          if (upsertError) {
+            console.error(`Error upserting ${url}:`, upsertError);
+            errors++;
+          } else {
+            if (result.google_index_status === "indexed") {
+              indexed++;
+            } else {
+              notIndexed++;
+            }
+            processed++;
+          }
+
+          return result;
+        } catch (error) {
+          console.error(`Error processing ${url}:`, error.message);
+          errors++;
+          return null;
+        }
+      });
+
+      await Promise.all(batchPromises);
+
+      // Report progress
+      if (progressCallback) {
+        progressCallback({
+          processed,
+          total: sitemapUrls.length,
+          indexed,
+          notIndexed,
+          errors,
+        });
+      }
+
+      // Delay between batches (except for the last batch)
+      if (i + batchSize < sitemapUrls.length) {
+        await new Promise((resolve) => setTimeout(resolve, delayBetweenBatches));
+      }
+    }
+
+    return {
+      success: true,
+      total: sitemapUrls.length,
+      processed,
+      indexed,
+      notIndexed,
+      errors,
+    };
+  } catch (error) {
+    console.error("Error syncing sitemap URLs to Supabase:", error);
+    throw error;
+  }
+};
+
 export default {
   initializeSearchConsole,
   getSearchPerformance,
@@ -680,4 +927,6 @@ export default {
   getPageIndexStatus,
   getPageRankings,
   getLinksData,
+  checkUrlIndexStatus,
+  syncSitemapUrlsToSupabase,
 };

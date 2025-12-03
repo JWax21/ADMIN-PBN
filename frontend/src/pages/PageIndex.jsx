@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import apiClient from "../api/axios";
 import { IoIosCheckmarkCircle, IoIosArrowUp } from "react-icons/io";
 import { GoArrowSwitch } from "react-icons/go";
+import { LuRefreshCcw } from "react-icons/lu";
 import "./PageIndex.css";
 
 const PageIndex = () => {
@@ -16,6 +17,7 @@ const PageIndex = () => {
     direction: "desc",
   });
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const sortDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -47,11 +49,24 @@ const PageIndex = () => {
     setError(null);
     try {
       const response = await apiClient.get("/api/search-console/page-index", {
-        params: { limit: 1000 },
+        params: { limit: 10000 },
       });
       if (response.data.success) {
-        setPages(response.data.data.pages || response.data.data);
+        const fetchedPages = response.data.data.pages || response.data.data;
+        setPages(fetchedPages);
         setStats(response.data.data.stats || null);
+
+        // Debug: Log first few pages to verify google_index_status
+        if (fetchedPages.length > 0) {
+          console.log(
+            "[Page Index Frontend] Sample pages:",
+            fetchedPages.slice(0, 3).map((p) => ({
+              url: p.url,
+              google_index_status: p.google_index_status,
+              indexed: p.indexed,
+            }))
+          );
+        }
       }
     } catch (err) {
       console.error("Error fetching page index:", err);
@@ -61,6 +76,33 @@ const PageIndex = () => {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      const response = await apiClient.post(
+        "/api/search-console/sync-index-status"
+      );
+      if (response.data.success) {
+        alert(
+          "Sync started in background. This may take a while. The page will refresh automatically when complete."
+        );
+        // Refresh after a delay to show updated data
+        setTimeout(() => {
+          fetchPages();
+        }, 5000);
+      }
+    } catch (err) {
+      console.error("Error starting sync:", err);
+      setError(
+        err.response?.data?.error ||
+          "Error starting sync. Check console for details."
+      );
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -112,6 +154,20 @@ const PageIndex = () => {
     return `${rate.toFixed(1)}%`;
   };
 
+  // Helper function to determine if a page is indexed
+  // Only "indexed" status should show as green, everything else is not indexed
+  const isPageIndexed = (page) => {
+    // Check google_index_status first - only "indexed" is considered indexed
+    if (
+      page.google_index_status !== null &&
+      page.google_index_status !== undefined
+    ) {
+      return page.google_index_status === "indexed";
+    }
+    // Fallback to boolean indexed field if google_index_status is not available
+    return page.indexed === true;
+  };
+
   const categories = [
     "all",
     "landing",
@@ -127,12 +183,42 @@ const PageIndex = () => {
   const filteredPages = pages.filter((page) => {
     const categoryMatch =
       selectedCategory === "all" || page.category === selectedCategory;
+    const pageIsIndexed = isPageIndexed(page);
     const indexedMatch =
       indexedFilter === "all" ||
-      (indexedFilter === "indexed" && page.indexed) ||
-      (indexedFilter === "not-indexed" && !page.indexed);
+      (indexedFilter === "indexed" && pageIsIndexed) ||
+      (indexedFilter === "not-indexed" && !pageIsIndexed);
     return categoryMatch && indexedMatch;
   });
+
+  // Debug logging (remove in production if needed)
+  useEffect(() => {
+    if (pages.length > 0) {
+      const categoryBreakdown = categories.reduce((acc, cat) => {
+        acc[cat] = pages.filter((p) => p.category === cat).length;
+        return acc;
+      }, {});
+      console.log("Filtering debug:", {
+        selectedCategory,
+        totalPages: pages.length,
+        filteredCount: filteredPages.length,
+        categoryBreakdown,
+        indexedBreakdown: {
+          indexed: pages.filter((p) => isPageIndexed(p)).length,
+          notIndexed: pages.filter((p) => !isPageIndexed(p)).length,
+        },
+        samplePage: pages[0]
+          ? {
+              url: pages[0].url,
+              category: pages[0].category,
+              indexed: pages[0].indexed,
+              google_index_status: pages[0].google_index_status,
+            }
+          : null,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, indexedFilter, pages.length]);
 
   // Sort filtered pages
   const sortedPages = [...filteredPages].sort((a, b) => {
@@ -203,11 +289,31 @@ const PageIndex = () => {
     return acc;
   }, {});
 
-  // Calculate stats based on selected category
+  // Use stats from API response (database) as base, then calculate category-specific stats
+  const baseStats = stats || {
+    totalPages: 0,
+    indexedCount: 0,
+    notIndexedCount: 0,
+    totalUniqueVisitors: 0,
+    engagementRate: "0.0",
+    avgDuration: 0,
+  };
+
+  // Calculate category-specific stats
+  // Use database stats when "all" is selected, otherwise calculate from filtered pages
   const categoryStats = {
-    totalPages: categoryFilteredPages.length,
-    indexedCount: categoryFilteredPages.filter((p) => p.indexed).length,
-    notIndexedCount: categoryFilteredPages.filter((p) => !p.indexed).length,
+    totalPages:
+      selectedCategory === "all"
+        ? baseStats.totalPages || 0
+        : categoryFilteredPages.length,
+    indexedCount:
+      selectedCategory === "all"
+        ? baseStats.indexedCount || 0
+        : categoryFilteredPages.filter((p) => isPageIndexed(p)).length,
+    notIndexedCount:
+      selectedCategory === "all"
+        ? baseStats.notIndexedCount || 0
+        : categoryFilteredPages.filter((p) => !isPageIndexed(p)).length,
   };
   categoryStats.notIndexedPercent =
     categoryStats.totalPages > 0
@@ -219,7 +325,7 @@ const PageIndex = () => {
 
   // Calculate average position for the selected category
   const indexedPagesInCategory = categoryFilteredPages.filter(
-    (p) => p.indexed && p.position > 0
+    (p) => isPageIndexed(p) && p.position > 0
   );
   categoryStats.avgPosition =
     indexedPagesInCategory.length > 0
@@ -231,45 +337,61 @@ const PageIndex = () => {
         ).toFixed(1)
       : "N/A";
 
-  // Calculate engagement metrics for the selected category
-  const totalUniqueVisitors = categoryFilteredPages.reduce(
-    (sum, p) => sum + (p.uniqueVisitors || 0),
-    0
-  );
-
-  // Calculate weighted average bounce rate (only pages with sessions > 0)
-  const pagesWithSessions = categoryFilteredPages.filter(
-    (p) => p.sessions > 0 && p.uniqueVisitors >= 1
-  );
-  const totalSessions = pagesWithSessions.reduce(
-    (sum, p) => sum + (p.sessions || 0),
-    0
-  );
-  const weightedBounceRate =
-    totalSessions > 0
-      ? pagesWithSessions.reduce(
-          (sum, p) => sum + ((p.bounceRate || 0) / 100) * (p.sessions || 0),
+  // For category-specific metrics, calculate from filtered pages
+  // But use overall stats from database when "all" is selected
+  const totalUniqueVisitors =
+    selectedCategory === "all"
+      ? baseStats.totalUniqueVisitors || 0
+      : categoryFilteredPages.reduce(
+          (sum, p) => sum + (p.uniqueVisitors || 0),
           0
-        ) / totalSessions
-      : 0;
-  categoryStats.engagementRate = ((1 - weightedBounceRate) * 100).toFixed(1);
+        );
 
-  // Calculate average duration (weighted by sessions or page views)
-  const pagesWithDuration = categoryFilteredPages.filter(
-    (p) => p.avgDuration && p.avgDuration > 0
-  );
-  const totalDurationWeight = pagesWithDuration.reduce(
-    (sum, p) => sum + (p.sessions || p.uniqueVisitors || 1),
-    0
-  );
-  categoryStats.avgDuration =
-    totalDurationWeight > 0
-      ? pagesWithDuration.reduce(
-          (sum, p) =>
-            sum + (p.avgDuration || 0) * (p.sessions || p.uniqueVisitors || 1),
-          0
-        ) / totalDurationWeight
-      : 0;
+  const engagementRate =
+    selectedCategory === "all"
+      ? baseStats.engagementRate || "0.0"
+      : (() => {
+          const pagesWithSessions = categoryFilteredPages.filter(
+            (p) => p.sessions > 0 && p.uniqueVisitors >= 1
+          );
+          const totalSessions = pagesWithSessions.reduce(
+            (sum, p) => sum + (p.sessions || 0),
+            0
+          );
+          const weightedBounceRate =
+            totalSessions > 0
+              ? pagesWithSessions.reduce(
+                  (sum, p) =>
+                    sum + ((p.bounceRate || 0) / 100) * (p.sessions || 0),
+                  0
+                ) / totalSessions
+              : 0;
+          return ((1 - weightedBounceRate) * 100).toFixed(1);
+        })();
+
+  const avgDuration =
+    selectedCategory === "all"
+      ? baseStats.avgDuration || 0
+      : (() => {
+          const pagesWithDuration = categoryFilteredPages.filter(
+            (p) => p.avgDuration && p.avgDuration > 0
+          );
+          const totalDurationWeight = pagesWithDuration.reduce(
+            (sum, p) => sum + (p.sessions || p.uniqueVisitors || 1),
+            0
+          );
+          return totalDurationWeight > 0
+            ? pagesWithDuration.reduce(
+                (sum, p) =>
+                  sum +
+                  (p.avgDuration || 0) * (p.sessions || p.uniqueVisitors || 1),
+                0
+              ) / totalDurationWeight
+            : 0;
+        })();
+
+  categoryStats.engagementRate = engagementRate;
+  categoryStats.avgDuration = avgDuration;
 
   const indexedCount = pages.filter((p) => p.indexed).length;
   const notIndexedCount = pages.filter((p) => !p.indexed).length;
@@ -307,7 +429,9 @@ const PageIndex = () => {
               }`}
               onClick={() => setSelectedCategory(cat)}
             >
-              {(cat.charAt(0).toUpperCase() + cat.slice(1)).substring(0, 10)}
+              <span style={{ display: "block", width: "100%" }}>
+                {(cat.charAt(0).toUpperCase() + cat.slice(1)).substring(0, 10)}
+              </span>
             </button>
           ))}
         </div>
@@ -376,6 +500,16 @@ const PageIndex = () => {
                   }`}
                 />
               </button>
+              <button
+                className="sync-button"
+                onClick={handleSync}
+                disabled={syncing}
+                title={syncing ? "Syncing..." : "Sync Index Status"}
+              >
+                <LuRefreshCcw
+                  className={syncing ? "sync-icon spinning" : "sync-icon"}
+                />
+              </button>
             </div>
           </div>
 
@@ -396,7 +530,7 @@ const PageIndex = () => {
               <div className="stat-box">
                 <div className="stat-label">Duration</div>
                 <div className="stat-value">
-                  {categoryStats.avgDuration
+                  {categoryStats.avgDuration && categoryStats.avgDuration > 0
                     ? formatDuration(categoryStats.avgDuration)
                     : "N/A"}
                 </div>
@@ -406,10 +540,13 @@ const PageIndex = () => {
                 <div className="stat-value index-status-value">
                   {formatNumber(categoryStats.indexedCount)} /{" "}
                   {formatNumber(categoryStats.totalPages)} (
-                  {(
-                    (categoryStats.indexedCount / categoryStats.totalPages) *
-                    100
-                  ).toFixed(1)}
+                  {categoryStats.totalPages > 0
+                    ? (
+                        (categoryStats.indexedCount /
+                          categoryStats.totalPages) *
+                        100
+                      ).toFixed(1)
+                    : "0.0"}
                   %)
                 </div>
               </div>
@@ -438,12 +575,20 @@ const PageIndex = () => {
             <tbody>
               {sortedPages.length > 0 ? (
                 sortedPages.map((page, index) => (
-                  <tr key={index}>
+                  <tr key={`${page.url}-${index}`}>
                     <td className="index-cell center-cell">
                       <IoIosCheckmarkCircle
                         className={`index-icon ${
-                          page.indexed ? "indexed" : "not-indexed"
+                          page.google_index_status === "indexed"
+                            ? "indexed"
+                            : "not-indexed"
                         }`}
+                        title={
+                          page.google_index_status
+                            ? `Status: ${page.google_index_status}`
+                            : "Unknown"
+                        }
+                        data-status={page.google_index_status || "unknown"}
                       />
                     </td>
                     <td className="number-cell center-cell narrow-column">

@@ -30,6 +30,8 @@ import {
   getTopCountries,
   getPageIndexStatus,
   getPageRankings,
+  syncSitemapUrlsToSupabase,
+  categorizePage,
 } from "./services/googleSearchConsole.js";
 import {
   getEngagementMetrics,
@@ -683,18 +685,265 @@ app.get("/api/search-console/top-countries", async (req, res) => {
   }
 });
 
-// Get page index status
+// Get page index status from Supabase
 app.get("/api/search-console/page-index", async (req, res) => {
   try {
-    const { limit = 25000 } = req.query;
-    const pages = await getPageIndexStatus(parseInt(limit));
+    // Fetch ALL pages from Supabase (no limit - get everything)
+    // Supabase has a default limit of 1000, so we need to fetch in batches if needed
+    let allPages = [];
+    let hasMore = true;
+    let page = 0;
+    const pageSize = 1000;
+    
+    while (hasMore) {
+      const { data: pagesBatch, error: fetchError } = await supabase
+        .from("google_index_pages")
+        .select("id, title, url, google_index_status, created_at")
+        .order("created_at", { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      
+      if (fetchError) {
+        throw fetchError;
+      }
+      
+      if (pagesBatch && pagesBatch.length > 0) {
+        allPages = allPages.concat(pagesBatch);
+        hasMore = pagesBatch.length === pageSize;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    const pages = allPages;
+    console.log(`[Page Index Backend] Fetched ${pages.length} total pages from Supabase (in ${page} batches)`);
+    
+    if (!pages || pages.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          pages: [],
+          stats: {
+            totalPages: 0,
+            indexedCount: 0,
+            notIndexedCount: 0,
+            notIndexedPercent: "0.00",
+          },
+        },
+      });
+    }
+
+    // Query Supabase directly for accurate counts from the entire table
+    const { count: indexedCountResult, error: indexedCountError } =
+      await supabase
+        .from("google_index_pages")
+        .select("*", { count: "exact", head: true })
+        .eq("google_index_status", "indexed");
+
+    const { count: notIndexedCountResult, error: notIndexedCountError } =
+      await supabase
+        .from("google_index_pages")
+        .select("*", { count: "exact", head: true })
+        .eq("google_index_status", "not_indexed");
+
+    if (indexedCountError) {
+      console.warn("Error counting indexed pages:", indexedCountError);
+    }
+    if (notIndexedCountError) {
+      console.warn("Error counting not indexed pages:", notIndexedCountError);
+    }
+
+    // Use direct database counts
+    const indexedCount = indexedCountResult || 0;
+    const notIndexedCount = notIndexedCountResult || 0;
+    const totalPages = pages.length;
+
+    // Fetch analytics data from GA and Search Console to augment each page
+    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0]; // 2 years ago
+
+    let avgDurationMap = {};
+    let pageVisitorsMap = {};
+    let searchAnalyticsMap = {};
+
+    try {
+      // Fetch GA data
+      const { getPageAvgDurations, getPageVisitorsAndBounceRate } =
+        await import("./services/googleAnalytics.js");
+      avgDurationMap = (await getPageAvgDurations(startDate, endDate)) || {};
+      pageVisitorsMap =
+        (await getPageVisitorsAndBounceRate(startDate, endDate)) || {};
+      console.log(`[Page Index] Fetched GA data for ${Object.keys(pageVisitorsMap).length} pages`);
+    } catch (gaError) {
+      console.warn("Could not fetch GA data:", gaError.message);
+    }
+
+    try {
+      // Fetch Search Console data
+      const { getPageIndexStatus } = await import(
+        "./services/googleSearchConsole.js"
+      );
+      const searchData = await getPageIndexStatus(25000);
+      // Create a map of URL -> search analytics data
+      searchData.pages?.forEach((page) => {
+        const normalizedUrl = page.url
+          .replace(/^https?:\/\/(www\.)?/, "")
+          .replace(/\/$/, "");
+        searchAnalyticsMap[normalizedUrl] = {
+          clicks: page.clicks || 0,
+          impressions: page.impressions || 0,
+          ctr: page.ctr || 0,
+          position: page.position || 0,
+        };
+      });
+      console.log(`[Page Index] Fetched Search Console data for ${Object.keys(searchAnalyticsMap).length} pages`);
+    } catch (scError) {
+      console.warn("Could not fetch Search Console data:", scError.message);
+    }
+
+    // Merge pages from Supabase with analytics data
+    const pagesWithAnalytics = pages.map((page) => {
+      // Categorize page
+      const category = categorizePage(page.url);
+
+      // Determine indexed status
+      const isIndexed = page.google_index_status === "indexed";
+
+      // Extract page path from full URL for matching with GA data
+      // GA uses paths like "/highest-carb" not full URLs
+      const pagePath = page.url.replace(/^https?:\/\/(www\.)?[^\/]+/, "") || "/";
+
+      // Get GA data by page path
+      const avgDuration = avgDurationMap[pagePath] || null;
+      const pageData = pageVisitorsMap[pagePath] || {
+        uniqueVisitors: 0,
+        bounceRate: 0,
+        sessions: 0,
+      };
+
+      // Get Search Console data by normalized URL
+      // Search Console URLs need to be normalized (remove protocol, www, trailing slash)
+      const normalizedUrl = page.url
+        .replace(/^https?:\/\/(www\.)?/, "")
+        .replace(/\/$/, "");
+      const searchData = searchAnalyticsMap[normalizedUrl] || {
+        clicks: 0,
+        impressions: 0,
+        ctr: 0,
+        position: 0,
+      };
+
+      return {
+        url: page.url,
+        indexed: isIndexed,
+        google_index_status: page.google_index_status,
+        category: category,
+        // Analytics data from Search Console
+        clicks: searchData.clicks,
+        impressions: searchData.impressions,
+        ctr: searchData.ctr,
+        position: searchData.position,
+        // Analytics data from GA
+        avgDuration: avgDuration,
+        uniqueVisitors: pageData.uniqueVisitors || 0,
+        bounceRate: pageData.bounceRate || 0,
+        sessions: pageData.sessions || 0,
+      };
+    });
+
+    // Calculate comprehensive stats from merged data
+    const totalUniqueVisitors = pagesWithAnalytics.reduce(
+      (sum, p) => sum + (p.uniqueVisitors || 0),
+      0
+    );
+
+    // Calculate weighted average bounce rate
+    const pagesWithSessions = pagesWithAnalytics.filter(
+      (p) => p.sessions > 0 && p.uniqueVisitors >= 1
+    );
+    const totalSessions = pagesWithSessions.reduce(
+      (sum, p) => sum + (p.sessions || 0),
+      0
+    );
+    const weightedBounceRate =
+      totalSessions > 0
+        ? pagesWithSessions.reduce(
+            (sum, p) => sum + ((p.bounceRate || 0) / 100) * (p.sessions || 0),
+            0
+          ) / totalSessions
+        : 0;
+    const engagementRate = ((1 - weightedBounceRate) * 100).toFixed(1);
+
+    // Calculate average duration (weighted by sessions or page views)
+    const pagesWithDuration = pagesWithAnalytics.filter(
+      (p) => p.avgDuration && p.avgDuration > 0
+    );
+    const totalDurationWeight = pagesWithDuration.reduce(
+      (sum, p) => sum + (p.sessions || p.uniqueVisitors || 1),
+      0
+    );
+    const avgDuration =
+      totalDurationWeight > 0
+        ? pagesWithDuration.reduce(
+            (sum, p) =>
+              sum +
+              (p.avgDuration || 0) * (p.sessions || p.uniqueVisitors || 1),
+            0
+          ) / totalDurationWeight
+        : 0;
 
     res.json({
       success: true,
-      data: pages,
+      data: {
+        pages: pagesWithAnalytics,
+        stats: {
+          totalPages,
+          indexedCount,
+          notIndexedCount,
+          notIndexedPercent:
+            totalPages > 0
+              ? ((notIndexedCount / totalPages) * 100).toFixed(2)
+              : "0.00",
+          totalUniqueVisitors,
+          engagementRate,
+          avgDuration,
+        },
+      },
     });
   } catch (error) {
     console.error("Error fetching page index status:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+
+// Sync sitemap URLs to Supabase (trigger manual sync)
+app.post("/api/search-console/sync-index-status", async (req, res) => {
+  try {
+    // Start sync in background (don't wait for completion)
+    syncSitemapUrlsToSupabase(supabase, (progress) => {
+      console.log(
+        `Sync progress: ${progress.processed}/${progress.total} (${progress.indexed} indexed, ${progress.notIndexed} not indexed, ${progress.errors} errors)`
+      );
+    })
+      .then((result) => {
+        console.log("Sync completed:", result);
+      })
+      .catch((error) => {
+        console.error("Sync error:", error);
+      });
+
+    res.json({
+      success: true,
+      message: "Sync started in background. This may take a while.",
+    });
+  } catch (error) {
+    console.error("Error starting sync:", error);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -711,6 +960,11 @@ app.get("/api/search-console/page-rankings", async (req, res) => {
       limit = 1000,
     } = req.query;
     const rankings = await getPageRankings(startDate, endDate, parseInt(limit));
+
+    // Log for debugging
+    const totalClicks = rankings.reduce((sum, r) => sum + (r.clicks || 0), 0);
+    const rowsWithClicks = rankings.filter(r => (r.clicks || 0) > 0).length;
+    console.log(`[Page Rankings] Date range: ${startDate} to ${endDate}, Total rows: ${rankings.length}, Rows with clicks: ${rowsWithClicks}, Total clicks: ${totalClicks}`);
 
     res.json({
       success: true,
