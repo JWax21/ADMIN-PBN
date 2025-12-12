@@ -817,20 +817,56 @@ export const checkUrlIndexStatus = async (url, supabaseClient) => {
  * Sync all sitemap URLs to Supabase with their index status
  * @param {Object} supabaseClient - Supabase client instance
  * @param {Function} progressCallback - Optional callback for progress updates
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.onlyNotIndexed - If true, only recheck pages with google_index_status = "not_indexed"
  * @returns {Promise<Object>} Sync results
  */
 export const syncSitemapUrlsToSupabase = async (
   supabaseClient,
-  progressCallback = null
+  progressCallback = null,
+  options = {}
 ) => {
   if (!searchConsoleClient) {
     throw new Error("Search Console client not initialized");
   }
 
+  const { onlyNotIndexed = true } = options; // Default to only checking not_indexed pages
+
   try {
-    // Fetch all sitemap URLs
-    const sitemapUrls = await fetchSitemap();
-    console.log(`Found ${sitemapUrls.length} URLs in sitemap`);
+    let urlsToCheck = [];
+
+    if (onlyNotIndexed) {
+      // Fetch only URLs that are marked as "not_indexed" from Supabase
+      console.log("Fetching not_indexed pages from Supabase...");
+      const { data: notIndexedPages, error: fetchError } = await supabaseClient
+        .from("google_index_pages")
+        .select("url")
+        .eq("google_index_status", "not_indexed");
+
+      if (fetchError) {
+        throw new Error(`Error fetching not_indexed pages: ${fetchError.message}`);
+      }
+
+      urlsToCheck = (notIndexedPages || []).map((page) => page.url);
+      console.log(`Found ${urlsToCheck.length} not_indexed pages to recheck`);
+    } else {
+      // Fetch all sitemap URLs (original behavior)
+      const sitemapUrls = await fetchSitemap();
+      urlsToCheck = sitemapUrls;
+      console.log(`Found ${urlsToCheck.length} URLs in sitemap`);
+    }
+
+    if (urlsToCheck.length === 0) {
+      console.log("No URLs to check");
+      return {
+        success: true,
+        total: 0,
+        processed: 0,
+        indexed: 0,
+        notIndexed: 0,
+        errors: 0,
+      };
+    }
 
     let processed = 0;
     let indexed = 0;
@@ -843,8 +879,8 @@ export const syncSitemapUrlsToSupabase = async (
     const batchSize = 5;
     const delayBetweenBatches = 1000; // 1 second
 
-    for (let i = 0; i < sitemapUrls.length; i += batchSize) {
-      const batch = sitemapUrls.slice(i, i + batchSize);
+    for (let i = 0; i < urlsToCheck.length; i += batchSize) {
+      const batch = urlsToCheck.slice(i, i + batchSize);
       const batchPromises = batch.map(async (url) => {
         try {
           const result = await checkUrlIndexStatus(url, supabaseClient);
@@ -891,7 +927,7 @@ export const syncSitemapUrlsToSupabase = async (
       if (progressCallback) {
         progressCallback({
           processed,
-          total: sitemapUrls.length,
+          total: urlsToCheck.length,
           indexed,
           notIndexed,
           errors,
@@ -899,14 +935,14 @@ export const syncSitemapUrlsToSupabase = async (
       }
 
       // Delay between batches (except for the last batch)
-      if (i + batchSize < sitemapUrls.length) {
+      if (i + batchSize < urlsToCheck.length) {
         await new Promise((resolve) => setTimeout(resolve, delayBetweenBatches));
       }
     }
 
     return {
       success: true,
-      total: sitemapUrls.length,
+      total: urlsToCheck.length,
       processed,
       indexed,
       notIndexed,

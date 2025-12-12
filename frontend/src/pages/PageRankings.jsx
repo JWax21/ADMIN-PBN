@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import apiClient from "../api/axios";
 import { IoIosArrowUp } from "react-icons/io";
 import "./PageRankings.css";
@@ -7,7 +7,7 @@ const PageRankings = () => {
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState("7daysAgo");
+  const [dateRange, setDateRange] = useState("30daysAgo");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState("clicks");
@@ -21,9 +21,7 @@ const PageRankings = () => {
     useState(true);
   const [searchPerformanceError, setSearchPerformanceError] = useState(null);
   const [searchPerformanceDateRange, setSearchPerformanceDateRange] =
-    useState("7daysAgo");
-  const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
-  const periodDropdownRef = useRef(null);
+    useState("30daysAgo");
 
   useEffect(() => {
     fetchRankings();
@@ -33,13 +31,6 @@ const PageRankings = () => {
   useEffect(() => {
     fetchSearchPerformance();
   }, [searchPerformanceDateRange]);
-
-  // Refresh rankings data when switching to queries tab
-  useEffect(() => {
-    if (activeTab === "queries") {
-      fetchRankings();
-    }
-  }, [activeTab]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -56,26 +47,6 @@ const PageRankings = () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [openDropdown]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        isPeriodDropdownOpen &&
-        periodDropdownRef.current &&
-        !periodDropdownRef.current.contains(event.target)
-      ) {
-        setIsPeriodDropdownOpen(false);
-      }
-    };
-
-    if (isPeriodDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isPeriodDropdownOpen]);
 
   const fetchRankings = async () => {
     setLoading(true);
@@ -250,10 +221,6 @@ const PageRankings = () => {
       return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
     });
 
-  // Calculate total clicks for debugging/verification
-  const totalClicks = filteredRankings.reduce((sum, r) => sum + (r.clicks || 0), 0);
-  const totalRowsWithClicks = filteredRankings.filter(r => (r.clicks || 0) > 0).length;
-
   // Search Performance data processing
   const dailyData = searchPerformance?.dailyData || [];
   const daysToShow =
@@ -268,117 +235,25 @@ const PageRankings = () => {
     ...recentData.map((d) => d.impressions || 0),
     1
   );
-  // Use separate max values for clicks and impressions to show both trends clearly
-  const maxClicksValue = Math.max(maxClicks, 100); // Ensure clicks scale is visible
-  const maxImpressionsValue = 1000; // Fixed range for impressions
-  const maxCTR = 3; // Fixed range for right axis (3%)
-
-  // Sync date ranges between performance and queries tabs
-  useEffect(() => {
-    if (activeTab === "queries") {
-      setDateRange(searchPerformanceDateRange);
-    }
-  }, [searchPerformanceDateRange, activeTab]);
-
-  // Scroll performance table to the right on mount and when data changes
-  useEffect(() => {
-    if (searchPerformance && dailyData.length > 0) {
-      const tableContainer = document.querySelector('.performance-table-container');
-      if (tableContainer) {
-        tableContainer.scrollLeft = tableContainer.scrollWidth;
-      }
-    }
-  }, [searchPerformance, dailyData]);
+  const maxValue = Math.max(maxClicks, maxImpressions);
+  const maxCTR = Math.max(...recentData.map((d) => (d.ctr || 0) * 100), 1);
 
   return (
     <div className="page-rankings-page">
       {/* Tab Toggle */}
-      <div className="view-tabs-container">
-        <div className="view-tabs">
-          <button
-            className={`view-tab ${activeTab === "performance" ? "active" : ""}`}
-            onClick={() => setActiveTab("performance")}
-          >
-            Performance
-          </button>
-          <button
-            className={`view-tab ${activeTab === "queries" ? "active" : ""}`}
-            onClick={() => setActiveTab("queries")}
-          >
-            Queries
-          </button>
-        </div>
-        {activeTab === "performance" ? (
-          <div className="period-control-group">
-            <label>Period:</label>
-            <div className="custom-dropdown" ref={periodDropdownRef}>
-              <div
-                className="custom-dropdown-trigger"
-                onClick={() => setIsPeriodDropdownOpen(!isPeriodDropdownOpen)}
-              >
-                <span>
-                  {searchPerformanceDateRange === "7daysAgo"
-                    ? "7D"
-                    : searchPerformanceDateRange === "30daysAgo"
-                    ? "30D"
-                    : "90D"}
-                </span>
-                <IoIosArrowUp
-                  className={`dropdown-arrow ${
-                    isPeriodDropdownOpen ? "arrow-open" : "arrow-closed"
-                  }`}
-                />
-              </div>
-              {isPeriodDropdownOpen && (
-                <div className="custom-dropdown-menu">
-                  <div
-                    className={`custom-dropdown-item ${
-                      searchPerformanceDateRange === "7daysAgo" ? "selected" : ""
-                    }`}
-                    onClick={() => {
-                      setSearchPerformanceDateRange("7daysAgo");
-                      setIsPeriodDropdownOpen(false);
-                    }}
-                  >
-                    <span>7D</span>
-                  </div>
-                  <div
-                    className={`custom-dropdown-item ${
-                      searchPerformanceDateRange === "30daysAgo" ? "selected" : ""
-                    }`}
-                    onClick={() => {
-                      setSearchPerformanceDateRange("30daysAgo");
-                      setIsPeriodDropdownOpen(false);
-                    }}
-                  >
-                    <span>30D</span>
-                  </div>
-                  <div
-                    className={`custom-dropdown-item ${
-                      searchPerformanceDateRange === "90daysAgo" ? "selected" : ""
-                    }`}
-                    onClick={() => {
-                      setSearchPerformanceDateRange("90daysAgo");
-                      setIsPeriodDropdownOpen(false);
-                    }}
-                  >
-                    <span>90D</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="period-control-group period-control-group-placeholder">
-            <label style={{ visibility: "hidden" }}>Period:</label>
-            <div className="custom-dropdown" style={{ visibility: "hidden" }}>
-              <div className="custom-dropdown-trigger">
-                <span>7D</span>
-                <IoIosArrowUp className="dropdown-arrow" />
-              </div>
-            </div>
-          </div>
-        )}
+      <div className="view-tabs">
+        <button
+          className={`view-tab ${activeTab === "performance" ? "active" : ""}`}
+          onClick={() => setActiveTab("performance")}
+        >
+          Performance
+        </button>
+        <button
+          className={`view-tab ${activeTab === "queries" ? "active" : ""}`}
+          onClick={() => setActiveTab("queries")}
+        >
+          Queries
+        </button>
       </div>
 
       {/* Search Performance Section */}
@@ -501,25 +376,30 @@ const PageRankings = () => {
               {recentData.length > 0 && (
                 <div className="card chart-card">
                   <div className="line-chart-container">
+                    <div className="chart-date-range-selector">
+                      <label htmlFor="search-performance-date-range">
+                        Period:
+                      </label>
+                      <select
+                        id="search-performance-date-range"
+                        value={searchPerformanceDateRange}
+                        onChange={(e) =>
+                          setSearchPerformanceDateRange(e.target.value)
+                        }
+                        className="date-range-select"
+                      >
+                        <option value="7daysAgo">Last 7 Days</option>
+                        <option value="30daysAgo">Last 30 Days</option>
+                        <option value="90daysAgo">Last 90 Days</option>
+                      </select>
+                    </div>
                     <div className="chart-wrapper">
-                      {/* Y-axis for impressions */}
+                      {/* Y-axis for clicks/impressions */}
                       <div className="y-axis-left">
                         {Array.from({ length: 6 }, (_, i) => {
-                          const value = Math.ceil((maxImpressionsValue / 5) * (5 - i));
+                          const value = Math.ceil((maxValue / 5) * (5 - i));
                           return (
                             <div key={i} className="y-axis-label">
-                              {formatNumber(value)}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      
-                      {/* Y-axis for clicks */}
-                      <div className="y-axis-left-clicks">
-                        {Array.from({ length: 6 }, (_, i) => {
-                          const value = Math.ceil((maxClicksValue / 5) * (5 - i));
-                          return (
-                            <div key={i} className="y-axis-label y-axis-label-clicks">
                               {formatNumber(value)}
                             </div>
                           );
@@ -541,7 +421,7 @@ const PageRankings = () => {
                           viewBox="0 0 1000 280"
                           preserveAspectRatio="none"
                         >
-                          {/* Clicks line - uses its own scale */}
+                          {/* Clicks line */}
                           <polyline
                             points={recentData
                               .map(
@@ -549,7 +429,7 @@ const PageRankings = () => {
                                   `${
                                     (i / Math.max(1, recentData.length - 1)) *
                                     1000
-                                  },${280 - (d.clicks / maxClicksValue) * 280}`
+                                  },${280 - (d.clicks / maxValue) * 280}`
                               )
                               .join(" ")}
                             fill="none"
@@ -557,7 +437,7 @@ const PageRankings = () => {
                             strokeWidth="3"
                           />
 
-                          {/* Impressions line - uses its own scale */}
+                          {/* Impressions line */}
                           <polyline
                             points={recentData
                               .map(
@@ -565,7 +445,7 @@ const PageRankings = () => {
                                   `${
                                     (i / Math.max(1, recentData.length - 1)) *
                                     1000
-                                  },${280 - (d.impressions / maxImpressionsValue) * 280}`
+                                  },${280 - (d.impressions / maxValue) * 280}`
                               )
                               .join(" ")}
                             fill="none"
@@ -634,16 +514,16 @@ const PageRankings = () => {
                       <div className="legend-item">
                         <div
                           className="legend-color"
-                          style={{ backgroundColor: "#10b981" }}
+                          style={{ backgroundColor: "#3b82f6" }}
                         ></div>
-                        <span>Impressions</span>
+                        <span>Clicks</span>
                       </div>
                       <div className="legend-item">
                         <div
                           className="legend-color"
-                          style={{ backgroundColor: "#3b82f6" }}
+                          style={{ backgroundColor: "#10b981" }}
                         ></div>
-                        <span>Clicks</span>
+                        <span>Impressions</span>
                       </div>
                       <div className="legend-item">
                         <div
@@ -894,9 +774,6 @@ const PageRankings = () => {
               </div>
 
               <div className="card">
-                <div style={{ padding: "1rem", borderBottom: "1px solid #e5e7eb", fontSize: "0.875rem", color: "#6b7280" }}>
-                  Total: {formatNumber(filteredRankings.length)} rows | {formatNumber(totalRowsWithClicks)} with clicks | {formatNumber(totalClicks)} total clicks
-                </div>
                 <div className="rankings-table-container">
                   <table className="rankings-table">
                     <thead>
