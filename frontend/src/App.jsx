@@ -21,6 +21,7 @@ import AudienceProfile from "./pages/AudienceProfile";
 import PowerUsers from "./pages/PowerUsers";
 import LLM from "./pages/LLM";
 import Socials from "./pages/Socials";
+import ShoppingSessions from "./pages/ShoppingSessions";
 import Login from "./pages/Login";
 import apiClient from "./api/axios";
 import "./App.css";
@@ -110,6 +111,7 @@ function App() {
           <Route path="top-pages" element={<TopPages />} />
           <Route path="llm" element={<LLM />} />
           <Route path="socials" element={<Socials />} />
+          <Route path="shopping-sessions" element={<ShoppingSessions />} />
         </Route>
       </Routes>
     </Router>

@@ -8,6 +8,7 @@ import { FaCompressArrowsAlt } from "react-icons/fa";
 import { FaStar } from "react-icons/fa6";
 import { MdGroups } from "react-icons/md";
 import { FaShareAlt } from "react-icons/fa";
+import { FaShoppingCart } from "react-icons/fa";
 import "./Layout.css";
 
 const Layout = () => {
@@ -47,6 +48,12 @@ const Layout = () => {
                 <FaStar />
               </span>
               Power Users
+            </NavLink>
+            <NavLink to="/shopping-sessions" className="nav-link">
+              <span className="nav-icon">
+                <FaShoppingCart />
+              </span>
+              Shopping Sessions
             </NavLink>
           </div>
 

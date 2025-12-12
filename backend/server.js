@@ -49,6 +49,7 @@ import {
 import { getSEOMetrics } from "./services/seoMetrics.js";
 import { getAudienceProfile } from "./services/audienceProfile.js";
 import { getSessionMetrics } from "./services/sessionMetrics.js";
+import { getShoppingSessions } from "./services/shoppingSessions.js";
 
 // Get current directory in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -588,6 +589,21 @@ app.get("/api/analytics/sessions", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching session metrics:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get shopping sessions (Shop button clicks)
+app.get("/api/analytics/shopping-sessions", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const data = await getShoppingSessions(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching shopping sessions:", error);
     res.status(500).json({
       success: false,
       error: error.message,
