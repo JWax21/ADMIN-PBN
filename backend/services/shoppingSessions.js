@@ -85,14 +85,9 @@ export const getShoppingSessions = async (
           { name: "pagePath" },
           { name: "pageTitle" },
           { name: "country" },
-          { name: "region" },
-          { name: "city" },
           { name: "deviceCategory" },
-          { name: "browser" },
-          { name: "operatingSystem" },
           { name: "sessionSource" },
           { name: "sessionMedium" },
-          { name: "newVsReturning" },
         ],
         metrics: [
           { name: "eventCount" },
@@ -133,14 +128,9 @@ export const getShoppingSessions = async (
         const pagePath = row.dimensionValues[2].value;
         const pageTitle = row.dimensionValues[3].value;
         const country = row.dimensionValues[4].value;
-        const region = row.dimensionValues[5].value;
-        const city = row.dimensionValues[6].value;
-        const deviceCategory = row.dimensionValues[7].value;
-        const browser = row.dimensionValues[8].value;
-        const operatingSystem = row.dimensionValues[9].value;
-        const sessionSource = row.dimensionValues[10].value;
-        const sessionMedium = row.dimensionValues[11].value;
-        const newVsReturning = row.dimensionValues[12].value;
+        const deviceCategory = row.dimensionValues[5].value;
+        const sessionSource = row.dimensionValues[6].value;
+        const sessionMedium = row.dimensionValues[7].value;
 
         const eventCount = parseInt(row.metricValues[0].value) || 0;
         const activeUsers = parseInt(row.metricValues[1].value) || 0;
@@ -177,14 +167,9 @@ export const getShoppingSessions = async (
           brandName: brandName || "Unknown",
           flavorName: flavorName || "Unknown",
           country,
-          region,
-          city,
           deviceCategory,
-          browser,
-          operatingSystem,
           sessionSource,
           sessionMedium,
-          newVsReturning,
           eventCount,
           activeUsers,
           sessions,
