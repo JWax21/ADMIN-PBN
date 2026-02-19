@@ -9,18 +9,11 @@ import { useState, useEffect } from "react";
 import Layout from "./components/Layout";
 import Visitors from "./pages/Visitors";
 import PageIndex from "./pages/PageIndex";
-import PageRankings from "./pages/PageRankings";
-import TopPages from "./pages/TopPages";
-import TrafficSources from "./pages/TrafficSources";
 import EngagementMetrics from "./pages/EngagementMetrics";
 import ConversionMetrics from "./pages/ConversionMetrics";
 import TechnicalPerformance from "./pages/TechnicalPerformance";
 import ContentInsights from "./pages/ContentInsights";
 import SEOMetrics from "./pages/SEOMetrics";
-import AudienceProfile from "./pages/AudienceProfile";
-import PowerUsers from "./pages/PowerUsers";
-import LLM from "./pages/LLM";
-import Socials from "./pages/Socials";
 import ShoppingSessions from "./pages/ShoppingSessions";
 import Login from "./pages/Login";
 import apiClient from "./api/axios";
@@ -98,19 +91,19 @@ function App() {
         >
           <Route index element={<Navigate to="/visitors" replace />} />
           <Route path="visitors" element={<Visitors />} />
-          <Route path="traffic-sources" element={<TrafficSources />} />
+          <Route path="traffic-sources" element={<Navigate to="/visitors" replace />} />
           <Route path="engagement" element={<EngagementMetrics />} />
           <Route path="conversion" element={<ConversionMetrics />} />
           <Route path="technical" element={<TechnicalPerformance />} />
           <Route path="content" element={<ContentInsights />} />
           <Route path="seo" element={<SEOMetrics />} />
-          <Route path="power-users" element={<PowerUsers />} />
-          <Route path="audience" element={<AudienceProfile />} />
+          <Route path="power-users" element={<Navigate to="/visitors?view=audience" replace />} />
+          <Route path="audience" element={<Navigate to="/visitors" replace />} />
           <Route path="page-index" element={<PageIndex />} />
-          <Route path="page-rankings" element={<PageRankings />} />
-          <Route path="top-pages" element={<TopPages />} />
-          <Route path="llm" element={<LLM />} />
-          <Route path="socials" element={<Socials />} />
+          <Route path="page-rankings" element={<Navigate to="/visitors" replace />} />
+          <Route path="top-pages" element={<Navigate to="/visitors" replace />} />
+          <Route path="llm" element={<Navigate to="/visitors" replace />} />
+          <Route path="socials" element={<Navigate to="/visitors" replace />} />
           <Route path="shopping-sessions" element={<ShoppingSessions />} />
         </Route>
       </Routes>

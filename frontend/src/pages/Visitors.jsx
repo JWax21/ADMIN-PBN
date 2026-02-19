@@ -1,13 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import apiClient from "../api/axios";
 import VisitorDetailsPanel from "../components/VisitorDetailsPanel";
+import GeographyHeatmap from "../components/GeographyHeatmap";
 import { detectDeviceModel } from "../utils/deviceDetection";
 import { IoIosArrowUp } from "react-icons/io";
 import { HiDownload } from "react-icons/hi";
 import * as XLSX from "xlsx";
+import PageRankings from "./PageRankings";
 import "./Visitors.css";
+import "./TrafficSources.css";
+import "./PowerUsers.css";
 
 const Visitors = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [visitors, setVisitors] = useState([]);
   const [dailyTrends, setDailyTrends] = useState([]);
   const [metrics, setMetrics] = useState(null);
@@ -21,13 +27,296 @@ const Visitors = () => {
   const periodDropdownRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
+  const [visitorsView, setVisitorsView] = useState("overview");
+  const [audienceProfile, setAudienceProfile] = useState(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
+  const [audienceError, setAudienceError] = useState(null);
+  const [powerUsers, setPowerUsers] = useState([]);
+  const [powerUsersLoading, setPowerUsersLoading] = useState(false);
+  const [powerUsersError, setPowerUsersError] = useState(null);
+  const [powerUsersDateRange, setPowerUsersDateRange] = useState("30daysAgo");
+  const [trafficSourcesData, setTrafficSourcesData] = useState(null);
+  const [trafficSourcesLoading, setTrafficSourcesLoading] = useState(false);
+  const [trafficSourcesError, setTrafficSourcesError] = useState(null);
+  const [trafficSourcesByPeriod, setTrafficSourcesByPeriod] = useState({ "7daysAgo": null, "30daysAgo": null, "90daysAgo": null });
+  const [trafficSourcesChartLoading, setTrafficSourcesChartLoading] = useState(false);
+  const [selectedSource, setSelectedSource] = useState(null);
+  const [topPagesData, setTopPagesData] = useState([]);
+  const [topPagesLoading, setTopPagesLoading] = useState(false);
+
+  /** Map GA source strings to a canonical name for chart/legend (dedupe e.g. chatgpt.com + openai → ChatGPT). */
+  const getCanonicalSource = (raw) => {
+    const s = (raw || "(not set)").trim();
+    const k = s.toLowerCase();
+    if (k === "(direct)" || k === "direct") return "Direct";
+    if (k.includes("openai") || k.includes("chatgpt")) return "ChatGPT";
+    if (k.includes("anthropic") || k.includes("claude")) return "Claude";
+    if (k.includes("perplexity")) return "Perplexity";
+    if (k.includes("google")) return "Google";
+    if (k.includes("bing")) return "Bing";
+    if (k.includes("yahoo")) return "Yahoo";
+    if (k.includes("duckduckgo")) return "DuckDuckGo";
+    if (k.includes("ecosia")) return "Ecosia";
+    if (k.includes("copilot")) return "Microsoft Copilot";
+    if (k.includes("vercel")) return "Vercel";
+    if (k.includes("facebook")) return "Facebook";
+    if (k.includes("twitter") || k.includes("x.com")) return "X (Twitter)";
+    if (k.includes("instagram")) return "Instagram";
+    if (k.includes("linkedin")) return "LinkedIn";
+    if (k.includes("pinterest")) return "Pinterest";
+    return s || "(not set)";
+  };
+
+  const mergeSessionSourcesByCanonical = (list) => {
+    const byCanonical = {};
+    (list || []).forEach((x) => {
+      const canon = getCanonicalSource(x.source);
+      byCanonical[canon] = (byCanonical[canon] || 0) + (x.sessions || 0);
+    });
+    return Object.entries(byCanonical).map(([source, sessions]) => ({ source, sessions }));
+  };
+
+  /** iPhone physical (and common logical) pixel dimensions -> short model label (Apple logo + this) */
+  const IPHONE_RESOLUTION_TO_MODEL = {
+    "1260x2736": "Air",
+    "1320x2868": "16 Pro Max",
+    "1206x2622": "16 Pro",
+    "1179x2556": "15 Pro",
+    "1170x2532": "14",
+    "1290x2796": "15 Pro Max",
+    "1284x2778": "14 Plus",
+    "1242x2688": "11 Pro Max",
+    "1125x2436": "11 Pro",
+    "1080x2340": "13 mini",
+    "1080x1920": "8 Plus",
+    "828x1792": "11",
+    "750x1334": "SE",
+    "640x1136": "SE (1st)",
+    "393x852": "15 Pro",
+    "390x844": "14",
+    "430x932": "15 Pro Max",
+    "428x926": "14 Plus",
+    "402x874": "16 Pro",
+    "440x956": "16 Pro Max",
+    "375x812": "13 mini",
+    "375x667": "SE",
+    "414x896": "11",
+    "414x736": "8 Plus",
+  };
+
+  const formatDeviceDisplay = (deviceName, screenResolution) => {
+    const isIPhone = /iphone|ios/i.test(deviceName || "");
+    if (!isIPhone) return deviceName || "—";
+    const res = (screenResolution || "").replace(/\s/g, "");
+    const match = /(\d+)\s*[x×]\s*(\d+)/i.exec(res);
+    if (!match) return "\uF8FF " + (deviceName || "iPhone");
+    const w = parseInt(match[1], 10);
+    const h = parseInt(match[2], 10);
+    const key = w < h ? `${w}x${h}` : `${h}x${w}`;
+    const model = IPHONE_RESOLUTION_TO_MODEL[key];
+    if (model) return <><span className="device-apple-logo" aria-hidden="true">&#xF8FF;</span> {model}</>;
+    return "\uF8FF " + (deviceName || "iPhone");
+  };
+
+  const SOURCE_GROUPS = [
+    {
+      label: "Search engines",
+      sources: [
+        { id: "google", label: "Google Organic", logo: "https://www.google.com/favicon.ico" },
+        { id: "bing", label: "Bing", logo: "https://www.bing.com/favicon.ico" },
+        { id: "yahoo", label: "Yahoo", logo: "https://www.yahoo.com/favicon.ico" },
+        { id: "duckduckgo", label: "DuckDuckGo", logo: "https://duckduckgo.com/favicon.ico" },
+      ],
+    },
+    {
+      label: "LLMs",
+      sources: [
+        { id: "chatgpt", label: "ChatGPT", logo: "https://chat.openai.com/favicon.ico" },
+        { id: "claude", label: "Claude", logo: "https://www.anthropic.com/favicon.ico" },
+        { id: "perplexity", label: "Perplexity", logo: "https://www.google.com/s2/favicons?domain=perplexity.ai&sz=32" },
+      ],
+    },
+    {
+      label: "Social media",
+      sources: [
+        { id: "facebook", label: "Facebook", logo: "https://www.facebook.com/favicon.ico" },
+        { id: "twitter", label: "X (Twitter)", logo: "https://twitter.com/favicon.ico" },
+        { id: "instagram", label: "Instagram", logo: "https://www.google.com/s2/favicons?domain=instagram.com&sz=32" },
+        { id: "linkedin", label: "LinkedIn", logo: "https://www.linkedin.com/favicon.ico" },
+        { id: "pinterest", label: "Pinterest", logo: "https://www.pinterest.com/favicon.ico" },
+        { id: "tiktok", label: "TikTok", logo: "https://www.google.com/s2/favicons?domain=tiktok.com&sz=32" },
+        { id: "reddit", label: "Reddit", logo: "https://www.google.com/s2/favicons?domain=reddit.com&sz=32" },
+        { id: "youtube", label: "YouTube", logo: "https://www.google.com/s2/favicons?domain=youtube.com&sz=32" },
+      ],
+    },
+  ];
 
   useEffect(() => {
     fetchVisitors();
     fetchDailyTrends();
     fetchMetrics();
-    setCurrentPage(1); // Reset to first page when date range changes
+    fetchTopPages();
+    setCurrentPage(1);
   }, [dateRange]);
+
+  const fetchTopPages = async () => {
+    setTopPagesLoading(true);
+    try {
+      const response = await apiClient.get("/api/analytics/top-pages", {
+        params: { startDate: dateRange, endDate: "today", limit: 200 },
+      });
+      if (response.data.success) setTopPagesData(response.data.data || []);
+    } catch (err) {
+      setTopPagesData([]);
+    } finally {
+      setTopPagesLoading(false);
+    }
+  };
+
+  const categorizePageFromPath = (path) => {
+    if (!path) return "other";
+    const p = (path.startsWith("/") ? path : `/${path}`).toLowerCase();
+    if (p.includes("/ingredient-checker")) return "ingredient-checker";
+    if (p.includes("/compare-bars") || p.includes("/browse")) return "tool";
+    if (p.includes("/partners") || p.includes("/contact") || p.includes("/help-center") || p.includes("/privacy-policy") || p.includes("/terms-of-service")) return "about";
+    if (p.includes("/reviews")) return "reviews";
+    if (p.includes("/rankings")) return "rankings";
+    if (p.includes("/directory")) return "directory";
+    const segments = p.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+    if (segments.length <= 1 && (p === "/" || p === "" || segments.length === 1)) return "landing";
+    return "other";
+  };
+
+  const CATEGORY_LABELS = {
+    landing: "Landing",
+    reviews: "Reviews",
+    rankings: "Rankings",
+    tool: "Tool",
+    "ingredient-checker": "Ingredient",
+    about: "About",
+    directory: "Directory",
+    other: "Other",
+  };
+
+  const categoryPieData = (() => {
+    if (!topPagesData.length) return [];
+    const byCat = {};
+    topPagesData.forEach((page) => {
+      const cat = categorizePageFromPath(page.path);
+      if (!byCat[cat]) byCat[cat] = { views: 0, weightedDuration: 0 };
+      byCat[cat].views += page.views || 0;
+      byCat[cat].weightedDuration += (page.views || 0) * (page.avgDuration || 0);
+    });
+    const totalViews = Object.values(byCat).reduce((s, x) => s + x.views, 0);
+    if (totalViews === 0) return [];
+    const slices = Object.entries(byCat)
+      .filter(([, d]) => d.views > 0)
+      .map(([cat, d]) => ({
+        category: cat,
+        label: CATEGORY_LABELS[cat] || cat,
+        views: d.views,
+        share: d.views / totalViews,
+        avgDuration: d.views > 0 ? d.weightedDuration / d.views : 0,
+      }))
+      .sort((a, b) => b.views - a.views);
+    const sortedByDuration = [...slices].sort((a, b) => a.avgDuration - b.avgDuration);
+    const rank = (s) => sortedByDuration.findIndex((x) => x.category === s.category);
+    const n = sortedByDuration.length;
+    return slices.map((s) => {
+      const r = rank(s);
+      const opacityByDuration = n > 1 ? 0.3 + 0.65 * (r / (n - 1)) : 0.75;
+      return {
+        ...s,
+        opacity: opacityByDuration,
+      };
+    });
+  })();
+
+  useEffect(() => {
+    const view = searchParams.get("view");
+    if (view === "audience" && visitorsView !== "audience") setVisitorsView("audience");
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (visitorsView === "audience") {
+      fetchAudienceProfile();
+      fetchPowerUsers();
+    }
+  }, [dateRange, visitorsView, powerUsersDateRange]);
+
+  const fetchPowerUsers = async () => {
+    setPowerUsersLoading(true);
+    setPowerUsersError(null);
+    try {
+      const response = await apiClient.get("/api/visitors/power-users", {
+        params: { startDate: powerUsersDateRange, endDate: "today", minSessions: 3 },
+      });
+      if (response.data.success) setPowerUsers(response.data.data || []);
+    } catch (err) {
+      setPowerUsersError(err.response?.data?.error || "Failed to load power users");
+      setPowerUsers([]);
+    } finally {
+      setPowerUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (visitorsView === "sources") {
+      fetchTrafficSources();
+      fetchTrafficSourcesForChart();
+    }
+  }, [dateRange, visitorsView]);
+
+  const fetchTrafficSources = async () => {
+    setTrafficSourcesLoading(true);
+    setTrafficSourcesError(null);
+    try {
+      const response = await apiClient.get("/api/analytics/traffic-sources", {
+        params: { startDate: dateRange, endDate: "today" },
+      });
+      if (response.data.success) setTrafficSourcesData(response.data.data);
+    } catch (err) {
+      setTrafficSourcesError(err.response?.data?.error || err.message);
+    } finally {
+      setTrafficSourcesLoading(false);
+    }
+  };
+
+  const fetchTrafficSourcesForChart = async () => {
+    setTrafficSourcesChartLoading(true);
+    try {
+      const periods = ["7daysAgo", "30daysAgo", "90daysAgo"];
+      const results = await Promise.all(
+        periods.map((startDate) =>
+          apiClient.get("/api/analytics/traffic-sources", { params: { startDate, endDate: "today" } }).then((r) => r.data.success ? r.data.data : null)
+        )
+      );
+      setTrafficSourcesByPeriod({
+        "7daysAgo": results[0],
+        "30daysAgo": results[1],
+        "90daysAgo": results[2],
+      });
+    } catch (err) {
+      setTrafficSourcesByPeriod({ "7daysAgo": null, "30daysAgo": null, "90daysAgo": null });
+    } finally {
+      setTrafficSourcesChartLoading(false);
+    }
+  };
+
+  const fetchAudienceProfile = async () => {
+    setAudienceLoading(true);
+    setAudienceError(null);
+    try {
+      const response = await apiClient.get("/api/analytics/audience", {
+        params: { startDate: dateRange, endDate: "today" },
+      });
+      setAudienceProfile(response.data.data);
+    } catch (err) {
+      setAudienceError(err.response?.data?.error || "Failed to load audience data");
+    } finally {
+      setAudienceLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -377,7 +666,41 @@ const Visitors = () => {
     if (!seconds && seconds !== 0) return "N/A";
     const minutes = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${minutes}:${String(secs).padStart(2, "0")}`;
+    return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const formatPowerUsersDate = (dateStr) => {
+    if (!dateStr) return "N/A";
+    if (dateStr.length === 8) {
+      const year = dateStr.substring(0, 4);
+      const month = dateStr.substring(4, 6);
+      const day = dateStr.substring(6, 8);
+      return `${month}/${day}/${year}`;
+    }
+    return dateStr;
+  };
+
+  const formatPowerUsersLocation = (city, region, country) => {
+    const parts = [];
+    if (city && city !== "N/A") parts.push(city);
+    if (region && region !== "N/A") parts.push(getStateAbbreviation(region) || region);
+    if (country) parts.push(country === "United States" ? "US" : country);
+    return parts.length > 0 ? parts.join(", ") : "N/A";
+  };
+
+  const formatHourLabel = (hour) => {
+    const h = typeof hour === "number" ? hour : parseInt(hour, 10);
+    if (!Number.isInteger(h) || h < 0 || h > 23) return hour != null ? String(hour) : "—";
+    if (h === 0) return "12am";
+    if (h === 12) return "12pm";
+    return h < 12 ? `${h}am` : `${h - 12}pm`;
+  };
+
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const formatDayOfWeekLabel = (value) => {
+    const n = typeof value === "number" ? value : parseInt(value, 10);
+    if (Number.isInteger(n) && n >= 0 && n <= 6) return DAY_NAMES[n];
+    return value != null ? String(value) : "—";
   };
 
   const getDayOfWeek = (dateStr) => {
@@ -628,6 +951,30 @@ const Visitors = () => {
         )}
       </div>
 
+      <div className="visitors-view-tabs">
+        <button
+          className={`visitors-view-tab ${visitorsView === "overview" ? "active" : ""}`}
+          onClick={() => setVisitorsView("overview")}
+        >
+          Overview
+        </button>
+        <button
+          className={`visitors-view-tab ${visitorsView === "sources" ? "active" : ""}`}
+          onClick={() => setVisitorsView("sources")}
+        >
+          Sources
+        </button>
+        <button
+          className={`visitors-view-tab ${visitorsView === "audience" ? "active" : ""}`}
+          onClick={() => { setVisitorsView("audience"); setSearchParams({ view: "audience" }); }}
+        >
+          Audience
+        </button>
+      </div>
+
+      {visitorsView === "overview" && (
+        <>
+      <div className="overview-chart-row">
       {/* Daily Trends Chart */}
       <div className="card trend-card">
         <div className="trend-chart">
@@ -747,6 +1094,105 @@ const Visitors = () => {
             <div className="no-data">No data available</div>
           )}
         </div>
+      </div>
+
+      {/* Top Pages - right of chart */}
+      <div className="card overview-top-pages-card">
+        <h2 className="overview-top-pages-title">Top Pages</h2>
+        {topPagesLoading ? (
+          <div className="overview-top-pages-loading">
+            <div className="spinner"></div>
+          </div>
+        ) : (
+          <div className="overview-top-pages-table-wrap">
+            <table className="overview-top-pages-table">
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Views</th>
+                  <th>Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topPagesData.length > 0 ? (
+                  topPagesData.slice(0, 15).map((page, index) => (
+                    <tr key={index}>
+                      <td className="overview-top-pages-path" title={page.path}>
+                        {page.title && page.title !== "(not set)" ? page.title : page.path}
+                      </td>
+                      <td className="overview-top-pages-num">{formatNumber(page.views)}</td>
+                      <td className="overview-top-pages-num">
+                        {page.avgDuration != null ? formatDuration(page.avgDuration) : "—"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="3" className="no-data">No data</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Category pie: page views by category, opacity = weighted avg engagement */}
+      <div className="card overview-category-pie-card">
+        <h2 className="overview-top-pages-title">Page views by category</h2>
+        {topPagesLoading ? (
+          <div className="overview-top-pages-loading">
+            <div className="spinner"></div>
+          </div>
+        ) : categoryPieData.length > 0 ? (
+          <div className="overview-pie-wrap">
+            <svg className="overview-pie-svg" viewBox="0 0 100 100">
+              {(() => {
+                let startAngle = 0;
+                const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+                return categoryPieData.map((slice, i) => {
+                  const angle = slice.share * 2 * Math.PI;
+                  const endAngle = startAngle + angle;
+                  const x1 = 50 + 42 * Math.sin(startAngle);
+                  const y1 = 50 - 42 * Math.cos(startAngle);
+                  const x2 = 50 + 42 * Math.sin(endAngle);
+                  const y2 = 50 - 42 * Math.cos(endAngle);
+                  const large = angle > Math.PI ? 1 : 0;
+                  const d = `M 50 50 L ${x1} ${y1} A 42 42 0 ${large} 1 ${x2} ${y2} Z`;
+                  const color = colors[i % colors.length];
+                  startAngle = endAngle;
+                  return (
+                    <path
+                      key={slice.category}
+                      d={d}
+                      fill={color}
+                      fillOpacity={slice.opacity}
+                      className="overview-pie-slice"
+                    />
+                  );
+                });
+              })()}
+            </svg>
+            <div className="overview-pie-legend">
+              {categoryPieData.map((slice, i) => {
+                const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+                return (
+                  <div key={slice.category} className="overview-pie-legend-item">
+                    <span
+                      className="overview-pie-legend-dot"
+                      style={{ backgroundColor: colors[i % colors.length], opacity: slice.opacity }}
+                    />
+                    <span className="overview-pie-legend-label">{slice.label}</span>
+                    <span className="overview-pie-legend-pct">{(slice.share * 100).toFixed(0)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="no-data">No data</div>
+        )}
+      </div>
       </div>
 
       <div className="card">
@@ -906,6 +1352,595 @@ const Visitors = () => {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {visitorsView === "sources" && (
+        <div className="visitors-sources-content traffic-sources-page">
+          <div className="sources-multi-row-toggle">
+            <div className="sources-toggle-row">
+              <span className="sources-toggle-row-label">Overview</span>
+              <button
+                type="button"
+                className={`sources-toggle-chip ${selectedSource === null ? "active" : ""}`}
+                onClick={() => setSelectedSource(null)}
+              >
+                All traffic
+              </button>
+            </div>
+            {SOURCE_GROUPS.map((group) => (
+              <div key={group.label} className="sources-toggle-row">
+                <span className="sources-toggle-row-label">{group.label}</span>
+                <div className="sources-toggle-chips">
+                  {group.sources.map((source) => (
+                    <button
+                      key={source.id}
+                      type="button"
+                      className={`sources-toggle-chip ${selectedSource === source.id ? "active" : ""}`}
+                      onClick={() => setSelectedSource(source.id)}
+                    >
+                      <img
+                        src={source.logo}
+                        alt=""
+                        className="sources-toggle-chip-logo"
+                        onError={(e) => { e.target.style.display = "none"; }}
+                      />
+                      <span>{source.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {selectedSource === "google" && (
+            <div className="sources-embedded-content sources-embedded-google">
+              <PageRankings />
+            </div>
+          )}
+
+          {selectedSource && ["chatgpt", "claude", "perplexity"].includes(selectedSource) && (
+            <div className="sources-embedded-content sources-embedded-llm">
+              <div className="card">
+                <h2>LLM traffic</h2>
+                <p>LLM traffic and engagement metrics for this source are coming soon.</p>
+              </div>
+            </div>
+          )}
+
+          {selectedSource && ["facebook", "twitter", "instagram", "linkedin", "pinterest", "tiktok", "reddit", "youtube"].includes(selectedSource) && (
+            <div className="sources-embedded-content sources-embedded-social">
+              <div className="card">
+                <h2>Social media traffic</h2>
+                <p>Social media traffic and engagement metrics for this source are coming soon.</p>
+              </div>
+            </div>
+          )}
+
+          {selectedSource && ["bing", "yahoo", "duckduckgo"].includes(selectedSource) && (
+            <div className="sources-embedded-content">
+              <div className="card">
+                <h2>Search engine traffic</h2>
+                <p>Detailed metrics for this search engine are coming soon. For now, use &quot;All traffic&quot; to see attribution data.</p>
+              </div>
+            </div>
+          )}
+
+          {selectedSource === null && (
+            <>
+          {trafficSourcesLoading && !trafficSourcesData ? (
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <p>Loading traffic sources...</p>
+            </div>
+          ) : trafficSourcesError && !trafficSourcesData ? (
+            <div className="traffic-sources-card">
+              <div className="traffic-sources-error-message">
+                <h3>⚠️ Error Loading Traffic Sources</h3>
+                <p>{trafficSourcesError}</p>
+              </div>
+            </div>
+          ) : trafficSourcesData ? (
+            <>
+              <div className="sources-traffic-row">
+                <div className="sources-chart-col">
+                  {trafficSourcesChartLoading ? (
+                    <div className="sources-chart-loading"><div className="spinner"></div><p>Loading chart...</p></div>
+                  ) : (() => {
+                    const raw7 = trafficSourcesByPeriod["7daysAgo"]?.sessionSources || [];
+                    const raw30 = trafficSourcesByPeriod["30daysAgo"]?.sessionSources || [];
+                    const raw90 = trafficSourcesByPeriod["90daysAgo"]?.sessionSources || [];
+                    const d7 = mergeSessionSourcesByCanonical(raw7);
+                    const d30 = mergeSessionSourcesByCanonical(raw30);
+                    const d90 = mergeSessionSourcesByCanonical(raw90);
+                    const total7 = d7.reduce((s, x) => s + (x.sessions || 0), 0);
+                    const total30 = d30.reduce((s, x) => s + (x.sessions || 0), 0);
+                    const total90 = d90.reduce((s, x) => s + (x.sessions || 0), 0);
+                    if (total7 + total30 + total90 === 0) {
+                      return <p className="traffic-sources-text-muted">No source data</p>;
+                    }
+                    const allSources = [...new Set([...d7.map((x) => x.source), ...d30.map((x) => x.source), ...d90.map((x) => x.source)])];
+                    const bySource30 = Object.fromEntries(d30.map((x) => [x.source, x.sessions || 0]));
+                    const sourceOrder = allSources.sort((a, b) => (bySource30[b] || 0) - (bySource30[a] || 0));
+                    const legendSources = total30 > 0
+                      ? sourceOrder.filter((src) => ((bySource30[src] || 0) / total30) > 0.01)
+                      : sourceOrder;
+                    const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1"];
+                    const byPeriod = (list) => Object.fromEntries((list || []).map((x) => [x.source || "(not set)", x.sessions || 0]));
+                    const p7 = byPeriod(d7);
+                    const p30 = byPeriod(d30);
+                    const p90 = byPeriod(d90);
+                    const periodTotals = [total7, total30, total90];
+                    const barHeight = 220;
+                    const barWidth = 88;
+                    const gap = 40;
+                    const axisWidth = 36;
+                    const chartWidth = axisWidth + 3 * barWidth + 2 * gap + gap;
+                    const chartHeight = barHeight + 24;
+                    const yTicks = [100, 75, 50, 25, 0];
+                    return (
+                      <>
+                        <h3 className="sources-chart-title">Percent</h3>
+                        <div className="sources-chart-and-legend">
+                          <div className="sources-stacked-chart-wrap">
+                            <svg className="sources-stacked-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="xMidYMid meet">
+                              {/* Y-axis line */}
+                              <line x1={axisWidth} y1={0} x2={axisWidth} y2={barHeight} stroke="#e5e7eb" strokeWidth="1" />
+                              {/* Y-axis labels (0% at bottom, 100% at top) */}
+                              {yTicks.map((pct) => {
+                                const y = (1 - pct / 100) * barHeight;
+                                return (
+                                  <g key={pct}>
+                                    <line x1={axisWidth} y1={y} x2={axisWidth + 4} y2={y} stroke="#9ca3af" strokeWidth="1" />
+                                    <text x={axisWidth - 4} y={y + 4} textAnchor="end" dominantBaseline="middle" className="sources-chart-axis-label">{pct}%</text>
+                                  </g>
+                                );
+                              })}
+                              {[p7, p30, p90].map((data, barIndex) => {
+                                let y = barHeight;
+                                const x = axisWidth + gap / 2 + barIndex * (barWidth + gap);
+                                const periodTotal = periodTotals[barIndex] || 1;
+                                return sourceOrder.map((src, segIndex) => {
+                                  const sessions = data[src] || 0;
+                                  if (sessions === 0) return null;
+                                  const h = (sessions / periodTotal) * barHeight;
+                                  y -= h;
+                                  return (
+                                    <rect
+                                      key={`${barIndex}-${src}`}
+                                      x={x}
+                                      y={y}
+                                      width={barWidth}
+                                      height={Math.max(h, 0.5)}
+                                      fill={colors[segIndex % colors.length]}
+                                      className="sources-stacked-segment"
+                                    />
+                                  );
+                                });
+                              })}
+                              {/* Period labels under each bar */}
+                              {["7D", "30D", "90D"].map((label, i) => {
+                                const barCenterX = axisWidth + gap / 2 + i * (barWidth + gap) + barWidth / 2;
+                                return (
+                                  <text key={label} x={barCenterX} y={chartHeight - 6} textAnchor="middle" className="sources-stacked-label-svg">{label}</text>
+                                );
+                              })}
+                            </svg>
+                          </div>
+                          <div className="sources-pie-legend sources-stacked-legend">
+                            {legendSources.map((src) => {
+                              const label = src;
+                              const colorIndex = sourceOrder.indexOf(src);
+                              return (
+                                <div key={src} className="sources-pie-legend-item">
+                                  <span className="sources-pie-legend-dot" style={{ backgroundColor: colors[colorIndex % colors.length] }} />
+                                  <span className="sources-pie-legend-label" title={label}>{label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                <div className="sources-table-col">
+              <div className="traffic-sources-summary-stats">
+                <div className="traffic-summary-card">
+                  <div className="traffic-summary-label">Total Sources</div>
+                  <div className="traffic-summary-value">
+                    {(trafficSourcesData.sessionSources || []).length}
+                  </div>
+                </div>
+                <div className="traffic-summary-card">
+                  <div className="traffic-summary-label">Total Sessions</div>
+                  <div className="traffic-summary-value">
+                    {formatNumber((trafficSourcesData.sessionSources || []).reduce((sum, s) => sum + (s.sessions || 0), 0))}
+                  </div>
+                </div>
+                <div className="traffic-summary-card">
+                  <div className="traffic-summary-label">Total Users</div>
+                  <div className="traffic-summary-value">
+                    {formatNumber((trafficSourcesData.sessionSources || []).reduce((sum, s) => sum + (s.users || 0), 0))}
+                  </div>
+                </div>
+              </div>
+              <div className="traffic-sources-card">
+                  <div className="traffic-sources-data-table">
+                    {(trafficSourcesData.sessionSources || []).length > 0 ? (
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Source</th>
+                            <th>Medium</th>
+                            <th>Channel Group</th>
+                            <th>Sessions</th>
+                            <th>Users</th>
+                            <th>Sessions %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(trafficSourcesData.sessionSources || []).map((source, index) => {
+                            const totalSessions = (trafficSourcesData.sessionSources || []).reduce((sum, s) => sum + (s.sessions || 0), 0);
+                            const sessionsPercent = totalSessions > 0 ? ((source.sessions / totalSessions) * 100).toFixed(1) : "0.0";
+                            return (
+                              <tr key={index}>
+                                <td>
+                                  <div className="traffic-sources-source-with-favicon">
+                                    <img
+                                      src={`https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://${source.source}&size=32`}
+                                      alt=""
+                                      className="traffic-sources-source-favicon"
+                                      onError={(e) => { e.target.style.display = "none"; }}
+                                    />
+                                    <span>{source.source}</span>
+                                  </div>
+                                </td>
+                                <td><span className="traffic-sources-medium-badge">{source.medium}</span></td>
+                                <td><span className="traffic-sources-channel-badge">{source.channelGroup}</span></td>
+                                <td className="traffic-sources-number-cell">{formatNumber(source.sessions)}</td>
+                                <td className="traffic-sources-number-cell">{formatNumber(source.users)}</td>
+                                <td className="traffic-sources-number-cell">
+                                  <div className="traffic-sources-percentage-cell">
+                                    <span>{sessionsPercent}%</span>
+                                    <div className="traffic-sources-percentage-bar">
+                                      <div className="traffic-sources-percentage-fill" style={{ width: `${sessionsPercent}%` }}></div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="traffic-sources-text-muted">No traffic source data available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+              </div>
+            </>
+          ) : null}
+            </>
+          )}
+        </div>
+      )}
+
+      {visitorsView === "audience" && (
+        <div className="visitors-audience-content">
+          {audienceLoading ? (
+            <div className="audience-loading">
+              <div className="spinner"></div>
+              <p>Loading audience data...</p>
+            </div>
+          ) : audienceError ? (
+            <div className="audience-error">
+              <p>⚠️ {audienceError}</p>
+            </div>
+          ) : audienceProfile ? (
+            <div className="audience-dashboard">
+              {/* Section: Geography */}
+              <section className="audience-section audience-section-geography">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Geography</h2>
+                  {audienceProfile.geographic?.length ? (
+                    <>
+                      <div className="geographic-heatmap-header">
+                        {(() => {
+                          const usUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
+                            const c = (geo.country || "").toLowerCase();
+                            if (c === "united states" || c.includes("united states") || c === "us" || c === "usa") return sum + (geo.users || 0);
+                            return sum;
+                          }, 0);
+                          const nonUsUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
+                            const c = (geo.country || "").toLowerCase();
+                            if (c !== "united states" && !c.includes("united states") && c !== "us" && c !== "usa") return sum + (geo.users || 0);
+                            return sum;
+                          }, 0);
+                          return (
+                            <div className="geographic-heatmap-stats">
+                              US: {usUsers.toLocaleString()} | Non-U.S.: {nonUsUsers.toLocaleString()}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      <GeographyHeatmap geographicData={audienceProfile.geographic} />
+                      <div className="audience-subheading">By country</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Country</th><th>Region</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.geographic.map((geo, index) => (
+                              <tr key={index}>
+                                <td>{geo.country}</td><td>{geo.region}</td>
+                                <td>{geo.users?.toLocaleString()}</td><td>{geo.sessions?.toLocaleString()}</td><td>{geo.pageViews?.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="no-data">No geographic data</div>
+                  )}
+                </div>
+              </section>
+
+              {/* Section: Device */}
+              <section className="audience-section audience-section-device">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Device</h2>
+                  {audienceProfile.device?.length ? (
+                    <>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--striped">
+                          <thead><tr><th>Device</th><th>Screen</th><th>Users</th><th>% Users</th><th>Sessions</th><th>% Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {(() => {
+                              const raw = audienceProfile.device || [];
+                              const totalUsers = raw.reduce((s, d) => s + (d.users || 0), 0);
+                              const totalSessions = raw.reduce((s, d) => s + (d.sessions || 0), 0);
+                              const desktopRows = raw.filter((d) => /desktop/i.test(d.device || ""));
+                              const nonDesktopRows = raw.filter((d) => !/desktop/i.test(d.device || ""));
+                              const mergedDesktop = desktopRows.length
+                                ? [{
+                                    device: "Desktop",
+                                    screenResolution: null,
+                                    users: desktopRows.reduce((s, d) => s + (d.users || 0), 0),
+                                    sessions: desktopRows.reduce((s, d) => s + (d.sessions || 0), 0),
+                                    pageViews: desktopRows.reduce((s, d) => s + (d.pageViews || 0), 0),
+                                  }]
+                                : [];
+                              const merged = [...mergedDesktop, ...nonDesktopRows];
+                              return merged.map((device, index) => {
+                                const userPct = totalUsers > 0 ? ((device.users || 0) / totalUsers * 100).toFixed(1) : "0";
+                                const sessionPct = totalSessions > 0 ? ((device.sessions || 0) / totalSessions * 100).toFixed(1) : "0";
+                                const isDesktop = /desktop/i.test(device.device || "");
+                                return (
+                                  <tr key={index}>
+                                    <td>{formatDeviceDisplay(device.device, device.screenResolution)}</td>
+                                    <td>{isDesktop ? "--" : (device.screenResolution || "N/A")}</td>
+                                    <td>{(device.users || 0).toLocaleString()}</td>
+                                    <td>{userPct}%</td>
+                                    <td>{(device.sessions || 0).toLocaleString()}</td>
+                                    <td>{sessionPct}%</td>
+                                    <td>{(device.pageViews || 0).toLocaleString()}</td>
+                                  </tr>
+                                );
+                              });
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="no-data">No device data</div>
+                  )}
+                </div>
+              </section>
+
+              {/* Section: Demographics */}
+              <section className="audience-section audience-section-demographics">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Demographics</h2>
+                  {audienceProfile.newReturningMetrics && (
+                    <div className="audience-kpi-row">
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">New Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.newUsers?.toLocaleString()}</div>
+                      </div>
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">Returning Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.returningUsers?.toLocaleString()}</div>
+                      </div>
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">Total Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.totalUsers?.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  )}
+                  {audienceProfile.visitorType?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">New vs returning</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Visitor Type</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.visitorType.map((v, i) => (
+                              <tr key={i}><td>{v.type}</td><td>{v.users?.toLocaleString()}</td><td>{v.sessions?.toLocaleString()}</td><td>{v.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.language?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Language</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Language</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.language.map((lang, i) => (
+                              <tr key={i}><td>{lang.language}</td><td>{lang.users?.toLocaleString()}</td><td>{lang.sessions?.toLocaleString()}</td><td>{lang.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.demographics?.ageBrackets?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Age</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Age Bracket</th><th>Users</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.demographics.ageBrackets.map((a, i) => (
+                              <tr key={i}><td>{a.bracket}</td><td>{a.users?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.demographics?.genders?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Gender</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Gender</th><th>Users</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.demographics.genders.map((g, i) => (
+                              <tr key={i}><td>{g.gender}</td><td>{g.users?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {!audienceProfile.visitorType?.length && !audienceProfile.language?.length && !audienceProfile.newReturningMetrics && !audienceProfile.demographics?.ageBrackets?.length && !audienceProfile.demographics?.genders?.length && (
+                    <div className="no-data">No demographics data</div>
+                  )}
+                </div>
+              </section>
+
+              {/* Section: Time Analysis */}
+              <section className="audience-section audience-section-time">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Time Analysis</h2>
+                  {audienceProfile.timeAnalysis ? (
+                    <>
+                      <div className="audience-subheading">By hour</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--dividers">
+                          <thead><tr><th>Hour</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.timeAnalysis.byHour?.map((hour, i) => (
+                              <tr key={i}><td>{formatHourLabel(hour.hour)}</td><td>{hour.sessions?.toLocaleString()}</td><td>{hour.users?.toLocaleString()}</td><td>{hour.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="audience-subheading">By day of week</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--dividers">
+                          <thead><tr><th>Day of Week</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.timeAnalysis.byDayOfWeek?.map((day, i) => (
+                              <tr key={i}><td>{formatDayOfWeekLabel(day.dayOfWeek)}</td><td>{day.sessions?.toLocaleString()}</td><td>{day.users?.toLocaleString()}</td><td>{day.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="no-data">No time analysis data</div>
+                  )}
+                </div>
+              </section>
+
+              {/* Section: Power Users */}
+              <section className="audience-section audience-section-power-users">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Power Users</h2>
+                  <div className="audience-power-users-controls">
+                    <label htmlFor="power-users-date-range">Period:</label>
+                    <select
+                      id="power-users-date-range"
+                      value={powerUsersDateRange}
+                      onChange={(e) => setPowerUsersDateRange(e.target.value)}
+                      className="audience-power-users-select"
+                    >
+                      <option value="7daysAgo">Last 7 Days</option>
+                      <option value="30daysAgo">Last 30 Days</option>
+                      <option value="90daysAgo">Last 90 Days</option>
+                    </select>
+                  </div>
+                  {powerUsersLoading ? (
+                    <div className="audience-loading-inline">
+                      <div className="spinner"></div>
+                      <p>Loading power users...</p>
+                    </div>
+                  ) : powerUsersError ? (
+                    <div className="audience-error-inline"><p>⚠️ {powerUsersError}</p></div>
+                  ) : (
+                    <div className="table-container audience-power-users-table-container">
+                      <table className="audience-data-table audience-data-table--striped">
+                        <thead>
+                          <tr>
+                            <th>Location</th>
+                            <th>First</th>
+                            <th>Last</th>
+                            <th>Sessions</th>
+                            <th>Page Views</th>
+                            <th>Avg Duration</th>
+                            <th>Total Duration</th>
+                            <th>Engagement Rate</th>
+                            <th>Bounce Rate</th>
+                            <th>Active Days</th>
+                            <th>Device</th>
+                            <th>Source</th>
+                            <th>First Page</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {powerUsers.length > 0 ? (
+                            powerUsers.map((user, index) => (
+                              <tr key={index}>
+                                <td>{formatPowerUsersLocation(user.city, user.region, user.country)}</td>
+                                <td>{formatPowerUsersDate(user.firstVisit)}</td>
+                                <td>{formatPowerUsersDate(user.lastVisit)}</td>
+                                <td>{formatNumber(user.sessions)}</td>
+                                <td>{formatNumber(user.pageViews)}</td>
+                                <td>{formatDuration(user.avgSessionDuration)}</td>
+                                <td>{formatDuration(user.totalEngagementDuration)}</td>
+                                <td>{user.engagementRate?.toFixed(1)}%</td>
+                                <td>{user.bounceRate?.toFixed(1)}%</td>
+                                <td>{user.uniqueDays}</td>
+                                <td>{user.operatingSystem} / {user.browser}</td>
+                                <td>{user.sessionSource || "N/A"}</td>
+                                <td>{user.landingPage || "N/A"}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="13" className="no-data">No power users found</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : (
+            <div className="no-data">No audience data</div>
+          )}
+        </div>
+      )}
 
       {isPanelOpen && selectedVisitor && (
         <VisitorDetailsPanel

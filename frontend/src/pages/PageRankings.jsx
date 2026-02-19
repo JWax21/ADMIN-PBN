@@ -230,6 +230,7 @@ const PageRankings = () => {
       ? 30
       : 90;
   const recentData = dailyData.slice(-daysToShow);
+  const recentDataForColumns = [...recentData].reverse();
   const maxClicks = Math.max(...recentData.map((d) => d.clicks || 0), 1);
   const maxImpressions = Math.max(
     ...recentData.map((d) => d.impressions || 0),
@@ -287,7 +288,7 @@ const PageRankings = () => {
                     <thead>
                       <tr>
                         <th>Metric</th>
-                        {recentData.map((d, i) => (
+                        {recentDataForColumns.map((d, i) => (
                           <th key={i} className="date-header">
                             {formatDate(d.date)}
                           </th>
@@ -298,7 +299,7 @@ const PageRankings = () => {
                     <tbody>
                       <tr>
                         <td className="metric-label">AVG Position</td>
-                        {recentData.map((d, i) => (
+                        {recentDataForColumns.map((d, i) => (
                           <td key={i} className="metric-value">
                             {d.position ? d.position.toFixed(1) : "N/A"}
                           </td>
@@ -316,7 +317,7 @@ const PageRankings = () => {
                       </tr>
                       <tr>
                         <td className="metric-label">Impressions</td>
-                        {recentData.map((d, i) => (
+                        {recentDataForColumns.map((d, i) => (
                           <td key={i} className="metric-value">
                             {formatNumber(d.impressions)}
                           </td>
@@ -332,7 +333,7 @@ const PageRankings = () => {
                       </tr>
                       <tr>
                         <td className="metric-label">Clicks</td>
-                        {recentData.map((d, i) => (
+                        {recentDataForColumns.map((d, i) => (
                           <td key={i} className="metric-value">
                             {formatNumber(d.clicks)}
                           </td>
@@ -348,7 +349,7 @@ const PageRankings = () => {
                       </tr>
                       <tr className="ctr-row">
                         <td className="metric-label">CTR</td>
-                        {recentData.map((d, i) => (
+                        {recentDataForColumns.map((d, i) => (
                           <td key={i} className="metric-value">
                             {((d.ctr || 0) * 100).toFixed(2)}%
                           </td>

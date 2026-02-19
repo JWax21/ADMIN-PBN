@@ -551,18 +551,77 @@ app.get("/api/analytics/seo", async (req, res) => {
   }
 });
 
-// Get audience profile
+// Get audience profile (from Supabase cache when available for instant load)
 app.get("/api/analytics/audience", async (req, res) => {
   try {
     const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const dateRange = startDate;
+
+    const { data: row, error: cacheError } = await supabase
+      .from("audience_profile_cache")
+      .select("payload, updated_at")
+      .eq("date_range", dateRange)
+      .maybeSingle();
+
+    if (!cacheError && row?.payload) {
+      return res.json({ success: true, data: row.payload, fromCache: true, updatedAt: row.updated_at });
+    }
+
     const data = await getAudienceProfile(startDate, endDate);
-    res.json({ success: true, data });
+    await supabase.from("audience_profile_cache").upsert(
+      { date_range: dateRange, payload: data, updated_at: new Date().toISOString() },
+      { onConflict: "date_range" }
+    ).then(() => {});
+    res.json({ success: true, data, fromCache: false });
   } catch (error) {
     console.error("Error fetching audience profile:", error);
     res.status(500).json({
       success: false,
       error: error.message,
     });
+  }
+});
+
+// Refresh audience profile cache (for cron every 30 min). Auth: CRON_SECRET or admin Bearer token.
+app.post("/api/analytics/audience/refresh", async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Missing authorization" });
+    }
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && token === cronSecret) {
+      // Cron job using CRON_SECRET
+    } else {
+      try {
+        const decoded = JSON.parse(Buffer.from(token, "base64").toString("utf8"));
+        if (decoded.expiresAt && decoded.expiresAt < Date.now()) {
+          return res.status(401).json({ success: false, error: "Token expired" });
+        }
+        if (!decoded.timestamp || !decoded.random) {
+          return res.status(401).json({ success: false, error: "Invalid token" });
+        }
+      } catch {
+        return res.status(401).json({ success: false, error: "Invalid token" });
+      }
+    }
+
+    const dateRanges = ["7daysAgo", "30daysAgo", "90daysAgo"];
+    for (const dateRange of dateRanges) {
+      const payload = await getAudienceProfile(dateRange, "today");
+      const { error } = await supabase.from("audience_profile_cache").upsert(
+        { date_range: dateRange, payload, updated_at: new Date().toISOString() },
+        { onConflict: "date_range" }
+      );
+      if (error) {
+        console.error(`Audience cache upsert failed for ${dateRange}:`, error);
+        return res.status(500).json({ success: false, error: error.message });
+      }
+    }
+    res.json({ success: true, message: "Audience cache updated for 7d, 30d, 90d" });
+  } catch (error) {
+    console.error("Error refreshing audience cache:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

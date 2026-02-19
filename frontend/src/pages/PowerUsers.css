@@ -72,7 +72,6 @@
   text-align: left;
   font-weight: 500;
   color: #6b7280;
-  border-bottom: 1px solid #e5e7eb;
   white-space: nowrap;
   font-size: 0.875rem;
   background: #f9fafb;
@@ -86,7 +85,6 @@
 
 .power-users-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #e5e7eb;
   color: #111827;
   font-size: 0.875rem;
   background: white;

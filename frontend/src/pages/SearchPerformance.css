@@ -26,7 +26,6 @@
   text-align: right;
   font-weight: 600;
   color: #374151;
-  border-bottom: 2px solid #e5e7eb;
   white-space: nowrap;
 }
 
@@ -42,13 +41,11 @@
 .performance-table .total-header {
   font-weight: 700;
   color: #111827;
-  border-left: 2px solid #e5e7eb;
 }
 
 .performance-table td {
   padding: 0.75rem 1rem;
   text-align: right;
-  border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
 }
 
@@ -71,16 +68,7 @@
 .performance-table .metric-value.total {
   font-weight: 600;
   color: #111827;
-  border-left: 2px solid #e5e7eb;
   background: #f9fafb;
-}
-
-.performance-table .ctr-row {
-  border-top: 2px solid #374151;
-}
-
-.performance-table .ctr-row td {
-  border-top: 2px solid #374151;
 }
 
 .chart-card {

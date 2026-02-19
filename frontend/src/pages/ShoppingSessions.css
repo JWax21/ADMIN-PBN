@@ -223,14 +223,12 @@
   color: #374151;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid #e5e7eb;
   white-space: nowrap;
   background: #f3f4f6;
 }
 
 .shopping-sessions-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
   font-size: 0.875rem;
   color: #111827;
 }

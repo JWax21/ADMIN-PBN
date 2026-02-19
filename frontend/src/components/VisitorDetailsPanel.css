@@ -248,14 +248,12 @@
   text-align: left;
   font-weight: 600;
   color: #374151;
-  border-bottom: 2px solid #e5e7eb;
   white-space: nowrap;
   font-size: 0.75rem;
 }
 
 .detail-table td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
   font-size: 0.75rem;
 }

@@ -1,13 +1,7 @@
 import React from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { BsHandIndexThumb } from "react-icons/bs";
+import { BsHandIndexThumb, BsGear, BsFileText } from "react-icons/bs";
 import { MdPeopleAlt } from "react-icons/md";
-import { MdAbc } from "react-icons/md";
-import { PiRanking, PiComputerTowerBold } from "react-icons/pi";
-import { FaCompressArrowsAlt } from "react-icons/fa";
-import { FaStar } from "react-icons/fa6";
-import { MdGroups } from "react-icons/md";
-import { FaShareAlt } from "react-icons/fa";
 import { FaShoppingCart } from "react-icons/fa";
 import "./Layout.css";
 
@@ -37,23 +31,11 @@ const Layout = () => {
               </span>
               Visitors
             </NavLink>
-            <NavLink to="/traffic-sources" className="nav-link">
-              <span className="nav-icon">
-                <FaCompressArrowsAlt />
-              </span>
-              Traffic Sources
-            </NavLink>
-            <NavLink to="/power-users" className="nav-link">
-              <span className="nav-icon">
-                <FaStar />
-              </span>
-              Power Users
-            </NavLink>
             <NavLink to="/shopping-sessions" className="nav-link">
               <span className="nav-icon">
                 <FaShoppingCart />
               </span>
-              Shopping Sessions
+              Monetization
             </NavLink>
           </div>
 
@@ -63,41 +45,19 @@ const Layout = () => {
               <span className="nav-icon">
                 <BsHandIndexThumb />
               </span>
-              Page Index
+              Sitemap
             </NavLink>
-            <NavLink to="/top-pages" className="nav-link">
+            <NavLink to="/technical" className="nav-link">
               <span className="nav-icon">
-                <PiRanking />
+                <BsGear />
               </span>
-              Top Pages
+              Technical
             </NavLink>
-            <NavLink to="/audience" className="nav-link">
+            <NavLink to="/content" className="nav-link">
               <span className="nav-icon">
-                <MdGroups />
+                <BsFileText />
               </span>
-              Audience
-            </NavLink>
-          </div>
-
-          <div className="nav-section">
-            <div className="nav-section-label">Sources</div>
-            <NavLink to="/page-rankings" className="nav-link">
-              <span className="nav-icon">
-                <MdAbc />
-              </span>
-              Google
-            </NavLink>
-            <NavLink to="/llm" className="nav-link">
-              <span className="nav-icon">
-                <PiComputerTowerBold />
-              </span>
-              LLM
-            </NavLink>
-            <NavLink to="/socials" className="nav-link">
-              <span className="nav-icon">
-                <FaShareAlt />
-              </span>
-              Socials
+              Content
             </NavLink>
           </div>
         </nav>

@@ -57,16 +57,17 @@
 }
 
 .performance-table th {
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
   text-align: center;
   font-weight: 600;
   color: #374151;
-  border-bottom: 2px solid #e5e7eb;
   white-space: nowrap;
 }
 
 .performance-table th:first-child {
   text-align: left;
+  min-width: 7.5rem;
+  white-space: nowrap;
 }
 
 .performance-table .date-header {
@@ -78,14 +79,12 @@
 .performance-table .total-header {
   font-weight: 700;
   color: #111827;
-  border-left: 2px solid #e5e7eb;
   text-align: center;
 }
 
 .performance-table td {
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.25rem;
   text-align: center;
-  border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
 }
 
@@ -93,6 +92,8 @@
   text-align: left;
   font-weight: 500;
   color: #374151;
+  min-width: 7.5rem;
+  white-space: nowrap;
 }
 
 .performance-table .metric-label {
@@ -108,27 +109,18 @@
 .performance-table .metric-value.total {
   font-weight: 600;
   color: #111827;
-  border-left: 2px solid #e5e7eb;
   background: #f9fafb;
-}
-
-.performance-table .ctr-row {
-  border-top: 2px solid #374151;
-}
-
-.performance-table .ctr-row td {
-  border-top: 2px solid #374151;
 }
 
 .chart-card {
   margin-top: 1.5rem;
   margin-bottom: 1.5rem;
-  padding: 2.5rem;
+  padding: 2.5rem 2.5rem 2.75rem;
 }
 
 .line-chart-container {
   position: relative;
-  padding: 1.5rem;
+  padding: 2rem 2rem 2.25rem;
 }
 
 .chart-date-range-selector {
@@ -440,13 +432,11 @@
   font-weight: 600;
   font-size: 0.6875rem;
   color: #374151;
-  border-bottom: 2px solid #e5e7eb;
   white-space: nowrap;
 }
 
 .rankings-table td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
   color: #6b7280;
   font-size: 0.75rem;
 }

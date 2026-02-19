@@ -117,7 +117,6 @@ table {
 
 thead {
   background-color: var(--light);
-  border-bottom: 2px solid var(--border);
 }
 
 th {
@@ -132,12 +131,7 @@ th {
 
 td {
   padding: 0.625rem 1rem;
-  border-bottom: 1px solid var(--border);
   font-size: 1.125rem;
-}
-
-tr:last-child td {
-  border-bottom: none;
 }
 
 tbody tr:hover {
