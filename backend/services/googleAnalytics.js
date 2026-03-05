@@ -425,6 +425,199 @@ export const getTrafficSources = async (
 };
 
 /**
+ * Map raw sessionSource from GA4 to canonical name (matches frontend getCanonicalSource).
+ */
+const getCanonicalSource = (raw) => {
+  const s = (raw || "(not set)").trim();
+  const k = s.toLowerCase();
+  if (k === "(direct)" || k === "direct") return "Direct";
+  if (k.includes("openai") || k.includes("chatgpt")) return "ChatGPT";
+  if (k.includes("anthropic") || k.includes("claude")) return "Claude";
+  if (k.includes("perplexity")) return "Perplexity";
+  if (k.includes("google")) return "Google";
+  if (k.includes("bing")) return "Bing";
+  if (k.includes("yahoo")) return "Yahoo";
+  if (k.includes("duckduckgo")) return "DuckDuckGo";
+  if (k.includes("ecosia")) return "Ecosia";
+  if (k.includes("copilot")) return "Microsoft Copilot";
+  if (k.includes("facebook")) return "Facebook";
+  if (k.includes("twitter") || k.includes("x.com")) return "X (Twitter)";
+  if (k.includes("instagram")) return "Instagram";
+  if (k.includes("linkedin")) return "LinkedIn";
+  if (k.includes("pinterest")) return "Pinterest";
+  return s || "(not set)";
+};
+
+/**
+ * Get daily traffic by source for the last 7 days (for overview Sources chart).
+ * Returns one row per day with merged canonical sources and percentages.
+ * @param {string} startDate - e.g. 7daysAgo
+ * @param {string} endDate - e.g. today
+ */
+export const getDailyTrafficBySource = async (
+  startDate = "7daysAgo",
+  endDate = "today"
+) => {
+  if (!analyticsDataClient) {
+    throw new Error("Analytics client not initialized");
+  }
+  const propertyId = process.env.GA_PROPERTY_ID;
+  try {
+    const response = await analyticsDataClient.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: "date" }, { name: "sessionSource" }],
+        metrics: [{ name: "sessions" }],
+        orderBys: [
+          { dimension: { dimensionName: "date" }, desc: false },
+          { metric: { metricName: "sessions" }, desc: true },
+        ],
+        limit: 500,
+      },
+    });
+
+    const rows = response.data.rows || [];
+    const byDate = {};
+    rows.forEach((row) => {
+      const date = row.dimensionValues[0].value;
+      const rawSource = row.dimensionValues[1].value;
+      const sessions = parseInt(row.metricValues[0].value, 10);
+      const source = getCanonicalSource(rawSource);
+      if (!byDate[date]) byDate[date] = {};
+      byDate[date][source] = (byDate[date][source] || 0) + sessions;
+    });
+
+    const daily = Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, sourceCounts]) => {
+        const sources = Object.entries(sourceCounts).map(([source, sessions]) => ({ source, sessions }));
+        const totalSessions = sources.reduce((sum, x) => sum + x.sessions, 0);
+        return { date, sources, totalSessions };
+      });
+
+    return { daily };
+  } catch (error) {
+    console.error("Error fetching daily traffic by source:", error);
+    throw error;
+  }
+};
+
+/**
+ * Map sourceId (UI) to GA4 dimension filter for sessionSource.
+ * Returns a FilterExpression for runReport dimensionFilter, or null if no filter.
+ */
+const getSourceDimensionFilter = (sourceId) => {
+  if (sourceId === "chatgpt") {
+    return {
+      orGroup: {
+        expressions: [
+          { filter: { fieldName: "sessionSource", stringFilter: { matchType: "CONTAINS", value: "chatgpt" } } },
+          { filter: { fieldName: "sessionSource", stringFilter: { matchType: "CONTAINS", value: "openai" } } },
+        ],
+      },
+    };
+  }
+  if (sourceId === "claude") {
+    return {
+      orGroup: {
+        expressions: [
+          { filter: { fieldName: "sessionSource", stringFilter: { matchType: "CONTAINS", value: "claude" } } },
+          { filter: { fieldName: "sessionSource", stringFilter: { matchType: "CONTAINS", value: "anthropic" } } },
+        ],
+      },
+    };
+  }
+  if (sourceId === "perplexity") {
+    return {
+      filter: { fieldName: "sessionSource", stringFilter: { matchType: "CONTAINS", value: "perplexity" } },
+    };
+  }
+  return null;
+};
+
+/**
+ * Get traffic analysis for a specific source (e.g. chatgpt, claude, perplexity).
+ * Returns aggregate metrics and top landing pages for that source.
+ * @param {string} sourceId - e.g. "chatgpt", "claude", "perplexity"
+ * @param {string} startDate - Start date (e.g. 30daysAgo)
+ * @param {string} endDate - End date (e.g. today)
+ */
+export const getSourceAnalysis = async (
+  sourceId,
+  startDate = "30daysAgo",
+  endDate = "today"
+) => {
+  if (!analyticsDataClient) {
+    throw new Error("Analytics client not initialized");
+  }
+  const dimensionFilter = getSourceDimensionFilter(sourceId);
+  if (!dimensionFilter) {
+    return { summary: null, topLandingPages: [], sourceId };
+  }
+
+  const propertyId = process.env.GA_PROPERTY_ID;
+  const baseRequest = {
+    dateRanges: [{ startDate, endDate }],
+    dimensionFilter,
+  };
+
+  try {
+    const [summaryResponse, pagesResponse] = await Promise.all([
+      analyticsDataClient.properties.runReport({
+        property: `properties/${propertyId}`,
+        requestBody: {
+          ...baseRequest,
+          metrics: [
+            { name: "sessions" },
+            { name: "activeUsers" },
+            { name: "screenPageViews" },
+            { name: "averageSessionDuration" },
+            { name: "bounceRate" },
+            { name: "engagedSessions" },
+          ],
+        },
+      }),
+      analyticsDataClient.properties.runReport({
+        property: `properties/${propertyId}`,
+        requestBody: {
+          ...baseRequest,
+          dimensions: [{ name: "landingPage" }],
+          metrics: [{ name: "sessions" }, { name: "screenPageViews" }, { name: "averageSessionDuration" }],
+          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+          limit: 20,
+        },
+      }),
+    ]);
+
+    const summaryRow = summaryResponse.data.rows?.[0];
+    const summary = summaryRow
+      ? {
+          sessions: parseInt(summaryRow.metricValues[0].value, 10),
+          activeUsers: parseInt(summaryRow.metricValues[1].value, 10),
+          screenPageViews: parseInt(summaryRow.metricValues[2].value, 10),
+          averageSessionDuration: parseFloat(summaryRow.metricValues[3].value, 10),
+          bounceRate: parseFloat(summaryRow.metricValues[4].value, 10) * 100,
+          engagedSessions: parseInt(summaryRow.metricValues[5].value, 10),
+        }
+      : { sessions: 0, activeUsers: 0, screenPageViews: 0, averageSessionDuration: 0, bounceRate: 0, engagedSessions: 0 };
+
+    const topLandingPages =
+      pagesResponse.data.rows?.map((row) => ({
+        landingPage: row.dimensionValues[0].value,
+        sessions: parseInt(row.metricValues[0].value, 10),
+        screenPageViews: parseInt(row.metricValues[1].value, 10),
+        averageSessionDuration: parseFloat(row.metricValues[2].value, 10),
+      })) || [];
+
+    return { summary, topLandingPages, sourceId };
+  } catch (error) {
+    console.error("Error fetching source analysis:", error);
+    throw error;
+  }
+};
+
+/**
  * Get daily trend data
  * @param {string} startDate - Start date in YYYY-MM-DD format
  * @param {string} endDate - End date in YYYY-MM-DD format
@@ -492,6 +685,8 @@ export default {
   getOverviewMetrics,
   getTopPages,
   getTrafficSources,
+  getSourceAnalysis,
+  getDailyTrafficBySource,
   getDailyTrend,
   getAnalyticsClient,
 };

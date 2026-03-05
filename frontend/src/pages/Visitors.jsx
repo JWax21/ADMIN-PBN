@@ -17,6 +17,8 @@ const Visitors = () => {
   const [dailyTrends, setDailyTrends] = useState([]);
   const [dailyTrendsAllTime, setDailyTrendsAllTime] = useState([]);
   const [hoveredLinePointIndex, setHoveredLinePointIndex] = useState(null);
+  const [lineChartWidth, setLineChartWidth] = useState(400);
+  const lineChartContainerRef = useRef(null);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,8 +42,13 @@ const Visitors = () => {
   const [trafficSourcesByPeriod, setTrafficSourcesByPeriod] = useState({ "7daysAgo": null, "30daysAgo": null, "90daysAgo": null });
   const [trafficSourcesChartLoading, setTrafficSourcesChartLoading] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
+  const [sourceAnalysis, setSourceAnalysis] = useState(null);
+  const [sourceAnalysisLoading, setSourceAnalysisLoading] = useState(false);
+  const [sourceAnalysisError, setSourceAnalysisError] = useState(null);
   const [topPagesData, setTopPagesData] = useState([]);
   const [topPagesLoading, setTopPagesLoading] = useState(false);
+  const [overviewDailySources, setOverviewDailySources] = useState(null);
+  const [overviewDailySourcesLoading, setOverviewDailySourcesLoading] = useState(false);
 
   /** Map GA source strings to a canonical name for chart/legend (dedupe e.g. chatgpt.com + openai → ChatGPT). */
   const getCanonicalSource = (raw) => {
@@ -159,6 +166,18 @@ const Visitors = () => {
     setCurrentPage(1);
   }, [dateRange]);
 
+  useEffect(() => {
+    if (visitorsView !== "overview") return;
+    setOverviewDailySourcesLoading(true);
+    apiClient
+      .get("/api/analytics/daily-traffic-by-source", { params: { startDate: "7daysAgo", endDate: "today" } })
+      .then((res) => {
+        if (res.data.success) setOverviewDailySources(res.data.data);
+      })
+      .catch(() => setOverviewDailySources(null))
+      .finally(() => setOverviewDailySourcesLoading(false));
+  }, [visitorsView]);
+
   const fetchTopPages = async () => {
     setTopPagesLoading(true);
     try {
@@ -197,6 +216,61 @@ const Visitors = () => {
     directory: "Directory",
     other: "Other",
   };
+
+  /** Bot detection: known crawler/bot browser strings (GA4 "browser" dimension). */
+  const KNOWN_BOT_BROWSER_PATTERNS = [
+    "googlebot", "bingbot", "slurp", "duckduckbot", "baiduspider", "yandexbot",
+    "facebookexternalhit", "twitterbot", "linkedinbot", "pinterest", "slackbot",
+    "whatsapp", "telegrambot", "discordbot", "applebot", "petalbot", "sogou",
+    "bytespider", "semrushbot", "ahrefsbot", "mj12bot", "dotbot", "screaming",
+    "headlesschrome", "phantom", "puppeteer", "selenium", "bot", "crawler", "spider",
+    "curl", "wget", "python-requests", "go-http-client", "java/", "apache-httpclient",
+  ];
+
+  /** Behavioral heuristics: sessions with duration <= this (seconds) and pageViews <= 1 are flagged. */
+  const BOT_BEHAVIORAL_MAX_DURATION_SEC = 3;
+  const BOT_BEHAVIORAL_MAX_PAGE_VIEWS = 1;
+
+  const botAnalysis = useMemo(() => {
+    const list = visitors || [];
+    const byBrowser = [];
+    const byBehavioral = [];
+    const flaggedIds = new Set();
+
+    list.forEach((v) => {
+      const browser = (v.browser || "").toLowerCase();
+      const isKnownBotBrowser = KNOWN_BOT_BROWSER_PATTERNS.some((p) => browser.includes(p));
+      const duration = Number(v.totalDuration) || 0;
+      const pageViews = Number(v.pageViews) || 0;
+      const isBehavioralBot = duration <= BOT_BEHAVIORAL_MAX_DURATION_SEC && pageViews <= BOT_BEHAVIORAL_MAX_PAGE_VIEWS;
+
+      if (isKnownBotBrowser) {
+        byBrowser.push({ ...v, botReason: "Known crawler/bot (browser)" });
+        flaggedIds.add(v.id);
+      }
+      if (isBehavioralBot) {
+        byBehavioral.push({ ...v, botReason: "Short session, single page" });
+        flaggedIds.add(v.id);
+      }
+    });
+
+    const combined = list.filter((v) => flaggedIds.has(v.id));
+    const byBrowserOnlyCount = byBrowser.length;
+    const byBehavioralOnlyCount = byBehavioral.filter((b) => !byBrowser.some((x) => x.id === b.id)).length;
+    const summary = {
+      totalSessions: list.length,
+      flaggedAsBot: combined.length,
+      byBrowserOnly: byBrowserOnlyCount,
+      byBehavioralOnly: byBehavioralOnlyCount,
+      percentFlagged: list.length ? ((combined.length / list.length) * 100).toFixed(1) : "0",
+    };
+    return {
+      byBrowser,
+      byBehavioral,
+      combined,
+      summary,
+    };
+  }, [visitors]);
 
   const categoryPieData = (() => {
     if (!topPagesData.length) return [];
@@ -241,6 +315,19 @@ const Visitors = () => {
     }
   }, [dateRange, visitorsView, powerUsersDateRange]);
 
+  useEffect(() => {
+    const el = lineChartContainerRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setLineChartWidth(w);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [visitorsView, trailing7LineData?.length]);
+
   const fetchPowerUsers = async () => {
     setPowerUsersLoading(true);
     setPowerUsersError(null);
@@ -263,6 +350,28 @@ const Visitors = () => {
       fetchTrafficSourcesForChart();
     }
   }, [dateRange, visitorsView]);
+
+  useEffect(() => {
+    if (visitorsView === "sources" && selectedSource === "chatgpt") {
+      setSourceAnalysisError(null);
+      setSourceAnalysisLoading(true);
+      apiClient
+        .get("/api/analytics/source-analysis", {
+          params: { sourceId: "chatgpt", startDate: dateRange, endDate: "today" },
+        })
+        .then((res) => {
+          if (res.data.success) setSourceAnalysis(res.data.data);
+          else setSourceAnalysisError(res.data.error || "Failed to load");
+        })
+        .catch((err) => {
+          setSourceAnalysisError(err.response?.data?.error || err.message);
+          setSourceAnalysis(null);
+        })
+        .finally(() => setSourceAnalysisLoading(false));
+    } else {
+      setSourceAnalysis(null);
+    }
+  }, [visitorsView, selectedSource, dateRange]);
 
   const fetchTrafficSources = async () => {
     setTrafficSourcesLoading(true);
@@ -909,6 +1018,12 @@ const Visitors = () => {
         >
           Sources
         </button>
+        <button
+          className={`visitors-view-tab ${visitorsView === "bots" ? "active" : ""}`}
+          onClick={() => setVisitorsView("bots")}
+        >
+          Bots
+        </button>
       </div>
 
       {visitorsView === "overview" && (
@@ -916,6 +1031,7 @@ const Visitors = () => {
       <div className="overview-chart-row">
       {/* Combined card: bar chart + line chart */}
       <div className="card overview-combined-charts-card">
+        <h2 className="overview-combined-charts-title">Traffic</h2>
         <div className="overview-charts-column">
       {/* Daily Trends Chart (top) */}
       <div className="trend-card-inner">
@@ -1043,6 +1159,7 @@ const Visitors = () => {
         <div className="trend-line-chart">
           {trailing7LineData.length > 0 ? (
             <div
+              ref={lineChartContainerRef}
               className="trend-line-chart-container"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -1060,7 +1177,7 @@ const Visitors = () => {
                 const trailing7 = trailing7LineData;
                 const yMax = 100;
                 const padding = { top: 8, right: 8, bottom: 24, left: 44 };
-                const width = 400;
+                const width = lineChartWidth;
                 const height = 180;
                 const xScale = (i) => padding.left + (i / Math.max(1, trailing7.length - 1)) * (width - padding.left - padding.right);
                 const yScale = (v) => padding.top + (1 - v / yMax) * (height - padding.top - padding.bottom);
@@ -1209,12 +1326,82 @@ const Visitors = () => {
                       style={{ backgroundColor: colors[i % colors.length], opacity: slice.opacity }}
                     />
                     <span className="overview-pie-legend-label">{slice.label}</span>
-                    <span className="overview-pie-legend-values">{(slice.share * 100).toFixed(0)}% | {formatNumber(slice.views)}</span>
+                    <span className="overview-pie-legend-values">
+                      <span className="overview-pie-legend-pct-cell">{(slice.share * 100).toFixed(0)}%</span>
+                      <span>|</span>
+                      <span>{formatNumber(slice.views)}</span>
+                    </span>
                   </div>
                 );
               })}
             </div>
           </div>
+        ) : (
+          <div className="no-data">No data</div>
+        )}
+      </div>
+
+      {/* Sources: 7-day stacked bars (skinny), right of pie */}
+      <div className="card overview-sources-card">
+        <h2 className="overview-top-pages-title">Sources</h2>
+        {overviewDailySourcesLoading ? (
+          <div className="overview-top-pages-loading">
+            <div className="spinner"></div>
+          </div>
+        ) : overviewDailySources?.daily?.length > 0 ? (
+          (() => {
+            const daily = overviewDailySources.daily.slice(-7);
+            const allSourceNames = [...new Set(daily.flatMap((d) => d.sources.map((s) => s.source)))];
+            const sourceOrder = allSourceNames.sort((a, b) => {
+              const totalA = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === a)?.sessions || 0), 0);
+              const totalB = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === b)?.sessions || 0), 0);
+              return totalB - totalA;
+            });
+            const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+            const getSourceColor = (source) => colors[sourceOrder.indexOf(source) % colors.length];
+            return (
+              <div className="overview-sources-chart">
+                <div className="overview-sources-bars">
+                  {daily.map((day, i) => {
+                    const total = day.totalSessions || 1;
+                    let cum = 0;
+                    return (
+                      <div key={day.date} className="overview-sources-bar-cell">
+                        <div className="overview-sources-bar-stack">
+                          {sourceOrder.map((src) => {
+                            const sessions = day.sources.find((s) => s.source === src)?.sessions || 0;
+                            const pct = (sessions / total) * 100;
+                            if (pct <= 0) return null;
+                            cum += pct;
+                            return (
+                              <div
+                                key={src}
+                                className="overview-sources-bar-segment"
+                                style={{
+                                  height: `${pct}%`,
+                                  backgroundColor: getSourceColor(src),
+                                }}
+                                title={`${src}: ${(pct).toFixed(0)}%`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <span className="overview-sources-bar-label">{formatDate(day.date)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="overview-sources-legend">
+                  {sourceOrder.map((src) => (
+                    <div key={src} className="overview-sources-legend-item">
+                      <span className="overview-sources-legend-dot" style={{ backgroundColor: getSourceColor(src) }} />
+                      <span className="overview-sources-legend-label">{src}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()
         ) : (
           <div className="no-data">No data</div>
         )}
@@ -1334,7 +1521,28 @@ const Visitors = () => {
               <h2 className="visitors-audience-card-title">Time Analysis</h2>
               {audienceProfile.timeAnalysis ? (
                 <>
-                  <div className="audience-subheading">By hour</div>
+                  <div className="audience-subheading">Sessions by hour</div>
+                  {audienceProfile.timeAnalysis.byHour?.length > 0 && (
+                    <div className="time-analysis-bar-chart">
+                      <div className="time-analysis-bars">
+                        {audienceProfile.timeAnalysis.byHour.map((hour, i) => {
+                          const maxSessions = Math.max(...audienceProfile.timeAnalysis.byHour.map((h) => h.sessions || 0), 1);
+                          const pct = (hour.sessions || 0) / maxSessions * 100;
+                          return (
+                            <div key={i} className="time-analysis-bar-cell" title={`${formatHourLabel(hour.hour)}: ${(hour.sessions || 0).toLocaleString()} sessions`}>
+                              <div className="time-analysis-bar-fill" style={{ height: `${pct}%` }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="time-analysis-bar-labels">
+                        {audienceProfile.timeAnalysis.byHour.map((hour, i) => (
+                          <span key={i} className="time-analysis-bar-label">{i % 3 === 0 ? formatHourLabel(hour.hour) : ""}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="audience-subheading">By hour (table)</div>
                   <div className="table-container">
                     <table className="audience-data-table audience-data-table--dividers">
                       <thead><tr><th>Hour</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
@@ -1702,6 +1910,233 @@ const Visitors = () => {
         </div>
       )}
 
+      {visitorsView === "bots" && (
+        <div className="bots-tab-content">
+          <header className="bots-tab-header">
+            <h1 className="bots-tab-title">Bot analysis</h1>
+            <p className="bots-tab-subtitle">Detection rules, heuristics, and sessions flagged as likely automated traffic. Use this to separate bots from real users in your metrics.</p>
+          </header>
+
+          {/* Section: Summary */}
+          <section className="bots-section" aria-labelledby="bots-summary-heading">
+            <h2 id="bots-summary-heading" className="bots-section-title">Summary (current 30-day data)</h2>
+            <div className="bots-summary-cards">
+              <div className="bots-summary-card">
+                <span className="bots-summary-label">Total sessions (visitors)</span>
+                <span className="bots-summary-value">{formatNumber(botAnalysis.summary.totalSessions)}</span>
+              </div>
+              <div className="bots-summary-card bots-summary-card--flagged">
+                <span className="bots-summary-label">Sessions flagged as likely bots</span>
+                <span className="bots-summary-value">{formatNumber(botAnalysis.summary.flaggedAsBot)}</span>
+              </div>
+              <div className="bots-summary-card">
+                <span className="bots-summary-label">Percentage of traffic flagged</span>
+                <span className="bots-summary-value">{botAnalysis.summary.percentFlagged}%</span>
+              </div>
+              <div className="bots-summary-card">
+                <span className="bots-summary-label">Flagged by browser (known crawler)</span>
+                <span className="bots-summary-value">{formatNumber(botAnalysis.summary.byBrowserOnly)}</span>
+              </div>
+              <div className="bots-summary-card">
+                <span className="bots-summary-label">Flagged by behavior only (short, 1 page)</span>
+                <span className="bots-summary-value">{formatNumber(botAnalysis.summary.byBehavioralOnly)}</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Section: Detection methods */}
+          <section className="bots-section" aria-labelledby="bots-methods-heading">
+            <h2 id="bots-methods-heading" className="bots-section-title">Detection methods used</h2>
+            <div className="bots-methods-list">
+              <div className="bots-method-item">
+                <h3 className="bots-method-name">1. Known crawler / User-Agent (browser dimension)</h3>
+                <p className="bots-method-desc">Sessions where the GA4 &quot;browser&quot; dimension matches a known bot or crawler string (e.g. Googlebot, Bingbot, curl, headless Chrome). This uses server-side reporting; GA4 may already filter some crawlers.</p>
+              </div>
+              <div className="bots-method-item">
+                <h3 className="bots-method-name">2. Behavioral heuristics</h3>
+                <p className="bots-method-desc">Sessions with <strong>duration ≤ {BOT_BEHAVIORAL_MAX_DURATION_SEC} seconds</strong> and <strong>page views ≤ {BOT_BEHAVIORAL_MAX_PAGE_VIEWS}</strong> are flagged as suspicious. Real users often scroll or view multiple pages; many bots hit one page and leave quickly.</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Section: Known crawler rules */}
+          <section className="bots-section" aria-labelledby="bots-crawler-rules-heading">
+            <h2 id="bots-crawler-rules-heading" className="bots-section-title">Known crawler / bot browser patterns (matched against GA4 &quot;browser&quot;)</h2>
+            <p className="bots-section-note">A session is flagged if its browser string (case-insensitive) contains any of the following.</p>
+            <div className="bots-patterns-grid">
+              {KNOWN_BOT_BROWSER_PATTERNS.map((p, i) => (
+                <span key={i} className="bots-pattern-tag">{p}</span>
+              ))}
+            </div>
+          </section>
+
+          {/* Section: Behavioral thresholds */}
+          <section className="bots-section" aria-labelledby="bots-behavioral-heading">
+            <h2 id="bots-behavioral-heading" className="bots-section-title">Behavioral heuristics: thresholds</h2>
+            <table className="bots-thresholds-table">
+              <thead>
+                <tr>
+                  <th>Rule name</th>
+                  <th>Condition</th>
+                  <th>Current value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Maximum session duration (seconds)</td>
+                  <td>Session duration ≤ this value</td>
+                  <td>{BOT_BEHAVIORAL_MAX_DURATION_SEC} sec</td>
+                </tr>
+                <tr>
+                  <td>Maximum page views</td>
+                  <td>Page views per session ≤ this value</td>
+                  <td>{BOT_BEHAVIORAL_MAX_PAGE_VIEWS} page(s)</td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="bots-section-note">Sessions that satisfy <strong>both</strong> conditions are flagged as likely bots (behavioral). You can adjust these in code if needed.</p>
+          </section>
+
+          {/* Section: Sessions flagged by known browser */}
+          <section className="bots-section" aria-labelledby="bots-by-browser-heading">
+            <h2 id="bots-by-browser-heading" className="bots-section-title">Sessions flagged by known crawler (browser)</h2>
+            <p className="bots-section-note">Sessions whose reported browser matches one of the known bot patterns above.</p>
+            {botAnalysis.byBrowser.length > 0 ? (
+              <div className="bots-table-wrapper">
+                <table className="bots-data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time</th>
+                      <th>Source</th>
+                      <th>Browser</th>
+                      <th>Location</th>
+                      <th>Page views</th>
+                      <th>Duration (sec)</th>
+                      <th>Landing page</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {botAnalysis.byBrowser.map((v, i) => (
+                      <tr key={v.id || i}>
+                        <td>{formatDate(v.date)}</td>
+                        <td>{formatTime(v.hour)}</td>
+                        <td>{v.sessionSource || "N/A"}</td>
+                        <td>{v.browser || "N/A"}</td>
+                        <td>{formatLocation(v.city, v.region, v.country)}</td>
+                        <td>{formatNumber(v.pageViews)}</td>
+                        <td>{(Number(v.totalDuration) || 0).toFixed(0)}</td>
+                        <td className="bots-cell-landing">{v.landingPage || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="bots-no-data">No sessions in this period were flagged by known crawler/browser. GA4 may already filter major crawlers, or your traffic has none.</p>
+            )}
+          </section>
+
+          {/* Section: Sessions flagged by behavior only */}
+          <section className="bots-section" aria-labelledby="bots-by-behavior-heading">
+            <h2 id="bots-by-behavior-heading" className="bots-section-title">Sessions flagged by behavior only (short, single page)</h2>
+            <p className="bots-section-note">Sessions that meet the duration and page-view thresholds and were not already flagged by browser. May include real users who bounced quickly.</p>
+            {botAnalysis.byBehavioral.filter((b) => !botAnalysis.byBrowser.some((x) => x.id === b.id)).length > 0 ? (
+              <div className="bots-table-wrapper">
+                <table className="bots-data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time</th>
+                      <th>Source</th>
+                      <th>Browser</th>
+                      <th>Location</th>
+                      <th>Page views</th>
+                      <th>Duration (sec)</th>
+                      <th>Landing page</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {botAnalysis.byBehavioral.filter((b) => !botAnalysis.byBrowser.some((x) => x.id === b.id)).map((v, i) => (
+                      <tr key={v.id || i}>
+                        <td>{formatDate(v.date)}</td>
+                        <td>{formatTime(v.hour)}</td>
+                        <td>{v.sessionSource || "N/A"}</td>
+                        <td>{v.browser || "N/A"}</td>
+                        <td>{formatLocation(v.city, v.region, v.country)}</td>
+                        <td>{formatNumber(v.pageViews)}</td>
+                        <td>{(Number(v.totalDuration) || 0).toFixed(0)}</td>
+                        <td className="bots-cell-landing">{v.landingPage || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="bots-no-data">No sessions in this period were flagged by behavior only (or all behavioral matches were already flagged by browser).</p>
+            )}
+          </section>
+
+          {/* Section: All flagged sessions (combined) */}
+          <section className="bots-section" aria-labelledby="bots-combined-heading">
+            <h2 id="bots-combined-heading" className="bots-section-title">All sessions flagged as likely bots (combined)</h2>
+            <p className="bots-section-note">Union of sessions flagged by known crawler (browser) or by behavioral heuristics. Use this list to exclude from &quot;human-only&quot; metrics.</p>
+            {botAnalysis.combined.length > 0 ? (
+              <div className="bots-table-wrapper">
+                <table className="bots-data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Time</th>
+                      <th>Source</th>
+                      <th>Browser</th>
+                      <th>Location</th>
+                      <th>Page views</th>
+                      <th>Duration (sec)</th>
+                      <th>Landing page</th>
+                      <th>Flag reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {botAnalysis.combined.map((v, i) => {
+                      const fromBrowser = botAnalysis.byBrowser.some((b) => b.id === v.id);
+                      const reason = fromBrowser ? "Known crawler (browser)" : "Short session, single page";
+                      return (
+                        <tr key={v.id || i}>
+                          <td>{formatDate(v.date)}</td>
+                          <td>{formatTime(v.hour)}</td>
+                          <td>{v.sessionSource || "N/A"}</td>
+                          <td>{v.browser || "N/A"}</td>
+                          <td>{formatLocation(v.city, v.region, v.country)}</td>
+                          <td>{formatNumber(v.pageViews)}</td>
+                          <td>{(Number(v.totalDuration) || 0).toFixed(0)}</td>
+                          <td className="bots-cell-landing">{v.landingPage || "—"}</td>
+                          <td className="bots-cell-reason">{reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="bots-no-data">No sessions in this period were flagged. Your traffic may be mostly human, or thresholds may need tuning.</p>
+            )}
+          </section>
+
+          {/* Section: Recommendations */}
+          <section className="bots-section" aria-labelledby="bots-recommendations-heading">
+            <h2 id="bots-recommendations-heading" className="bots-section-title">Recommendations</h2>
+            <ul className="bots-recommendations-list">
+              <li><strong>Exclude flagged sessions from KPIs:</strong> When reporting &quot;real users&quot; or &quot;human traffic&quot;, exclude the sessions listed above (or use a &quot;human-only&quot; segment in GA4).</li>
+              <li><strong>Log raw User-Agent server-side:</strong> GA4 does not expose full User-Agent in all reports. Logging UA on your server (e.g. in middleware) lets you run stricter bot rules (e.g. JA3 fingerprint, more crawler lists).</li>
+              <li><strong>Behavioral thresholds:</strong> The current duration (≤3 sec) and page-view (≤1) rules can be tuned in code. Consider excluding only &quot;0 sec + 1 page&quot; if you want to avoid flagging fast bounces.</li>
+              <li><strong>CAPTCHA or challenges:</strong> For sensitive actions, use a CAPTCHA or managed bot solution (e.g. Cloudflare Bot Management, Turnstile) to block or challenge suspected bots.</li>
+              <li><strong>Rate limiting:</strong> Apply rate limits by IP or session on API or form endpoints to reduce automated abuse.</li>
+            </ul>
+          </section>
+        </div>
+      )}
+
       {visitorsView === "sources" && (
         <div className="visitors-sources-content traffic-sources-page">
           <div className="sources-multi-row-toggle">
@@ -1746,7 +2181,87 @@ const Visitors = () => {
             </div>
           )}
 
-          {selectedSource && ["chatgpt", "claude", "perplexity"].includes(selectedSource) && (
+          {selectedSource === "chatgpt" && (
+            <div className="sources-embedded-content sources-embedded-llm">
+              <div className="card source-analysis-card">
+                <h2 className="source-analysis-title">ChatGPT traffic</h2>
+                <p className="source-analysis-subtitle">Traffic where session source contains chatgpt or openai, for the selected date range.</p>
+                {sourceAnalysisLoading && (
+                  <div className="source-analysis-loading">
+                    <div className="spinner"></div>
+                    <p>Loading ChatGPT traffic analysis...</p>
+                  </div>
+                )}
+                {sourceAnalysisError && !sourceAnalysis && (
+                  <div className="source-analysis-error">
+                    <p>⚠️ {sourceAnalysisError}</p>
+                  </div>
+                )}
+                {!sourceAnalysisLoading && sourceAnalysis?.summary && (
+                  <>
+                    <h3 className="source-analysis-section-heading">Summary</h3>
+                    <div className="source-analysis-metrics">
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Sessions</span>
+                        <span className="source-analysis-metric-value">{formatNumber(sourceAnalysis.summary.sessions)}</span>
+                      </div>
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Users</span>
+                        <span className="source-analysis-metric-value">{formatNumber(sourceAnalysis.summary.activeUsers)}</span>
+                      </div>
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Page views</span>
+                        <span className="source-analysis-metric-value">{formatNumber(sourceAnalysis.summary.screenPageViews)}</span>
+                      </div>
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Avg. session duration</span>
+                        <span className="source-analysis-metric-value">{formatDuration(sourceAnalysis.summary.averageSessionDuration)}</span>
+                      </div>
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Bounce rate</span>
+                        <span className="source-analysis-metric-value">{sourceAnalysis.summary.bounceRate?.toFixed(1)}%</span>
+                      </div>
+                      <div className="source-analysis-metric">
+                        <span className="source-analysis-metric-label">Engaged sessions</span>
+                        <span className="source-analysis-metric-value">{formatNumber(sourceAnalysis.summary.engagedSessions)}</span>
+                      </div>
+                    </div>
+                    {sourceAnalysis.topLandingPages?.length > 0 && (
+                      <>
+                        <h3 className="source-analysis-section-heading">Top landing pages from ChatGPT</h3>
+                        <div className="source-analysis-table-wrap">
+                          <table className="source-analysis-table">
+                            <thead>
+                              <tr>
+                                <th>Landing page</th>
+                                <th>Sessions</th>
+                                <th>Page views</th>
+                                <th>Avg. duration</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sourceAnalysis.topLandingPages.map((row, i) => (
+                                <tr key={i}>
+                                  <td className="source-analysis-page-cell" title={row.landingPage}>{stripSiteNameFromTitle(row.landingPage || "")}</td>
+                                  <td>{formatNumber(row.sessions)}</td>
+                                  <td>{formatNumber(row.screenPageViews)}</td>
+                                  <td>{formatDuration(row.averageSessionDuration)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                    {sourceAnalysis.summary.sessions === 0 && (
+                      <p className="source-analysis-no-data">No ChatGPT traffic in this period.</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {selectedSource && ["claude", "perplexity"].includes(selectedSource) && (
             <div className="sources-embedded-content sources-embedded-llm">
               <div className="card">
                 <h2>LLM traffic</h2>

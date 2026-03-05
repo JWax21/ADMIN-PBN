@@ -13,6 +13,8 @@ import {
   getOverviewMetrics,
   getTopPages,
   getTrafficSources,
+  getSourceAnalysis,
+  getDailyTrafficBySource,
   getDailyTrend,
 } from "./services/googleAnalytics.js";
 import {
@@ -435,6 +437,39 @@ app.get("/api/analytics/traffic-sources", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching traffic sources:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get traffic analysis for a specific source (e.g. chatgpt, claude, perplexity)
+app.get("/api/analytics/source-analysis", async (req, res) => {
+  try {
+    const { sourceId, startDate = "30daysAgo", endDate = "today" } = req.query;
+    if (!sourceId) {
+      return res.status(400).json({ success: false, error: "sourceId is required" });
+    }
+    const data = await getSourceAnalysis(sourceId, startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching source analysis:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get daily traffic by source (last 7 days for overview Sources chart)
+app.get("/api/analytics/daily-traffic-by-source", async (req, res) => {
+  try {
+    const { startDate = "7daysAgo", endDate = "today" } = req.query;
+    const data = await getDailyTrafficBySource(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching daily traffic by source:", error);
     res.status(500).json({
       success: false,
       error: error.message,
