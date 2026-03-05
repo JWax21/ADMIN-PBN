@@ -1372,7 +1372,6 @@ const Visitors = () => {
                             const sessions = sources.find((s) => s.source === src)?.sessions || 0;
                             const pct = (sessions / total) * 100;
                             if (pct <= 0) return null;
-                            cum += pct;
                             return (
                               <div
                                 key={src}

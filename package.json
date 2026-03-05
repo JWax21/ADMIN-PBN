@@ -6,7 +6,9 @@
     "dev": "npx concurrently \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:backend": "npm run dev --prefix backend",
-    "install:all": "npm install && npm install --prefix frontend && npm install --prefix backend"
+    "install:all": "npm install && npm install --prefix frontend && npm install --prefix backend",
+    "test": "npm run test --prefix frontend",
+    "build": "npm run build --prefix frontend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
