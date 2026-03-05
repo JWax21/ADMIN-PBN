@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import apiClient from "../api/axios";
 import VisitorDetailsPanel from "../components/VisitorDetailsPanel";
 import GeographyHeatmap from "../components/GeographyHeatmap";
 import { detectDeviceModel } from "../utils/deviceDetection";
-import { IoIosArrowUp } from "react-icons/io";
 import { HiDownload } from "react-icons/hi";
 import * as XLSX from "xlsx";
 import PageRankings from "./PageRankings";
@@ -16,15 +15,15 @@ const Visitors = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [visitors, setVisitors] = useState([]);
   const [dailyTrends, setDailyTrends] = useState([]);
+  const [dailyTrendsAllTime, setDailyTrendsAllTime] = useState([]);
+  const [hoveredLinePointIndex, setHoveredLinePointIndex] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedVisitor, setSelectedVisitor] = useState(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [dateRange, setDateRange] = useState("7daysAgo");
+  const [dateRange, setDateRange] = useState("30daysAgo");
   const [hoveredBar, setHoveredBar] = useState(null);
-  const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
-  const periodDropdownRef = useRef(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [visitorsView, setVisitorsView] = useState("overview");
@@ -154,6 +153,7 @@ const Visitors = () => {
   useEffect(() => {
     fetchVisitors();
     fetchDailyTrends();
+    fetchDailyTrendsAllTime();
     fetchMetrics();
     fetchTopPages();
     setCurrentPage(1);
@@ -233,13 +233,10 @@ const Visitors = () => {
   })();
 
   useEffect(() => {
-    const view = searchParams.get("view");
-    if (view === "audience" && visitorsView !== "audience") setVisitorsView("audience");
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (visitorsView === "audience") {
+    if (visitorsView === "overview" || visitorsView === "logs") {
       fetchAudienceProfile();
+    }
+    if (visitorsView === "logs") {
       fetchPowerUsers();
     }
   }, [dateRange, visitorsView, powerUsersDateRange]);
@@ -318,26 +315,6 @@ const Visitors = () => {
     }
   };
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        isPeriodDropdownOpen &&
-        periodDropdownRef.current &&
-        !periodDropdownRef.current.contains(event.target)
-      ) {
-        setIsPeriodDropdownOpen(false);
-      }
-    };
-
-    if (isPeriodDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isPeriodDropdownOpen]);
-
   const fetchVisitors = async () => {
     setLoading(true);
     setError(null);
@@ -378,6 +355,33 @@ const Visitors = () => {
       console.error("Error fetching daily trends:", error);
     }
   };
+
+  const fetchDailyTrendsAllTime = async () => {
+    try {
+      const response = await apiClient.get("/api/visitors/daily-trends", {
+        params: { startDate: "90daysAgo", endDate: "today" },
+      });
+      if (response.data.success) {
+        setDailyTrendsAllTime(response.data.data || []);
+      } else {
+        setDailyTrendsAllTime([]);
+      }
+    } catch (error) {
+      console.error("Error fetching all-time daily trends:", error);
+      setDailyTrendsAllTime([]);
+    }
+  };
+
+  const trailing7LineData = useMemo(() => {
+    const data = dailyTrendsAllTime;
+    if (!data.length) return [];
+    return data.map((_, i) => {
+      const start = Math.max(0, i - 6);
+      const slice = data.slice(start, i + 1);
+      const sum = slice.reduce((s, d) => s + (d.total || 0), 0);
+      return { date: data[i].date, avg: slice.length ? sum / slice.length : 0 };
+    });
+  }, [dailyTrendsAllTime]);
 
   const fetchMetrics = async () => {
     try {
@@ -443,6 +447,11 @@ const Visitors = () => {
       console.error("Error details:", error.response?.data);
       setError(error.response?.data?.error || error.message);
     }
+  };
+
+  const stripSiteNameFromTitle = (str) => {
+    if (!str || typeof str !== "string") return str;
+    return str.replace(/\s*\|\s*Protein Bar Nerd\s*$/i, "").trim();
   };
 
   const formatNumber = (num) => {
@@ -797,7 +806,7 @@ const Visitors = () => {
     ws["!cols"] = colWidths;
 
     // Generate filename with date range
-    const dateRangeLabel = dateRange === "7daysAgo" ? "7D" : dateRange === "30daysAgo" ? "30D" : dateRange === "90daysAgo" ? "90D" : "365D";
+    const dateRangeLabel = "30D";
     const filename = `visitors_${dateRangeLabel}_${new Date().toISOString().split('T')[0]}.xlsx`;
 
     // Save file
@@ -839,68 +848,6 @@ const Visitors = () => {
   return (
     <div className="visitors-page">
       <div className="visitors-header-controls">
-        <div className="period-control-group">
-          <label>Period:</label>
-          <div className="custom-dropdown" ref={periodDropdownRef}>
-            <div
-              className="custom-dropdown-trigger"
-              onClick={() => setIsPeriodDropdownOpen(!isPeriodDropdownOpen)}
-            >
-              <span>
-                {dateRange === "7daysAgo"
-                  ? "7D"
-                  : dateRange === "30daysAgo"
-                  ? "30D"
-                  : dateRange === "90daysAgo"
-                  ? "90D"
-                  : "365D"}
-              </span>
-              <IoIosArrowUp
-                className={`dropdown-arrow ${
-                  isPeriodDropdownOpen ? "arrow-open" : "arrow-closed"
-                }`}
-              />
-            </div>
-            {isPeriodDropdownOpen && (
-              <div className="custom-dropdown-menu">
-                <div
-                  className={`custom-dropdown-item ${
-                    dateRange === "7daysAgo" ? "selected" : ""
-                  }`}
-                  onClick={() => {
-                    setDateRange("7daysAgo");
-                    setIsPeriodDropdownOpen(false);
-                  }}
-                >
-                  <span>7D</span>
-                </div>
-                <div
-                  className={`custom-dropdown-item ${
-                    dateRange === "30daysAgo" ? "selected" : ""
-                  }`}
-                  onClick={() => {
-                    setDateRange("30daysAgo");
-                    setIsPeriodDropdownOpen(false);
-                  }}
-                >
-                  <span>30D</span>
-                </div>
-                <div
-                  className={`custom-dropdown-item ${
-                    dateRange === "90daysAgo" ? "selected" : ""
-                  }`}
-                  onClick={() => {
-                    setDateRange("90daysAgo");
-                    setIsPeriodDropdownOpen(false);
-                  }}
-                >
-                  <span>90D</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        
         {metrics && (
           <div className="visitors-metrics">
             {dailyTrends.length > 0 && metrics.today && (
@@ -914,15 +861,7 @@ const Visitors = () => {
               </div>
             )}
             <div className="visitor-metric-card">
-              <div className="visitor-metric-label">
-                {dateRange === "7daysAgo"
-                  ? "Week"
-                  : dateRange === "30daysAgo"
-                  ? "Month"
-                  : dateRange === "90daysAgo"
-                  ? "3 Month"
-                  : "Total Unique Visitors"}
-              </div>
+              <div className="visitor-metric-label">Month (30D)</div>
               <div className="visitor-metric-value">
                 <span className="metric-unique">{formatNumber(metrics.activeUsers)}</span>
                 <span className="metric-separator">|</span>
@@ -959,31 +898,34 @@ const Visitors = () => {
           Overview
         </button>
         <button
+          className={`visitors-view-tab ${visitorsView === "logs" ? "active" : ""}`}
+          onClick={() => setVisitorsView("logs")}
+        >
+          Logs
+        </button>
+        <button
           className={`visitors-view-tab ${visitorsView === "sources" ? "active" : ""}`}
           onClick={() => setVisitorsView("sources")}
         >
           Sources
-        </button>
-        <button
-          className={`visitors-view-tab ${visitorsView === "audience" ? "active" : ""}`}
-          onClick={() => { setVisitorsView("audience"); setSearchParams({ view: "audience" }); }}
-        >
-          Audience
         </button>
       </div>
 
       {visitorsView === "overview" && (
         <>
       <div className="overview-chart-row">
-      {/* Daily Trends Chart */}
-      <div className="card trend-card">
+      {/* Combined card: bar chart + line chart */}
+      <div className="card overview-combined-charts-card">
+        <div className="overview-charts-column">
+      {/* Daily Trends Chart (top) */}
+      <div className="trend-card-inner">
         <div className="trend-chart">
           {dailyTrends.length > 0 ? (
             <div className="trend-chart-container">
               {/* Y-axis labels */}
               <div className="y-axis">
                 {(() => {
-                  const maxTotal = 500;
+                  const maxTotal = 100;
                   const minTotal = 0;
                   const range = maxTotal - minTotal;
                   const steps = 5;
@@ -1011,10 +953,10 @@ const Visitors = () => {
                 {/* Stacked Bars */}
                 <div className="trend-bars">
                   {(() => {
-                    const maxTotal = 500;
+                    const maxTotal = 100;
                     return dailyTrends.slice(-30).map((day, index) => {
                       // Total bar height as percentage of container
-                      const totalBarHeight = (day.total / maxTotal) * 100;
+                      const totalBarHeight = Math.min(100, (day.total / maxTotal) * 100);
                       // Segment heights as percentages of the bar (not container)
                       const dayTotal = day.total;
                       const returningHeight = dayTotal > 0 ? (day.returning / dayTotal) * 100 : 0;
@@ -1096,6 +1038,90 @@ const Visitors = () => {
         </div>
       </div>
 
+      {/* Trailing 7-day average line chart (bottom), 90D */}
+      <div className="trend-line-card-inner">
+        <div className="trend-line-chart">
+          {trailing7LineData.length > 0 ? (
+            <div
+              className="trend-line-chart-container"
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const fraction = x / rect.width;
+                const index = Math.min(
+                  trailing7LineData.length - 1,
+                  Math.max(0, Math.round(fraction * (trailing7LineData.length - 1)))
+                );
+                setHoveredLinePointIndex(index);
+              }}
+              onMouseLeave={() => setHoveredLinePointIndex(null)}
+            >
+              {(() => {
+                const trailing7 = trailing7LineData;
+                const yMax = 100;
+                const padding = { top: 8, right: 8, bottom: 24, left: 44 };
+                const width = 400;
+                const height = 180;
+                const xScale = (i) => padding.left + (i / Math.max(1, trailing7.length - 1)) * (width - padding.left - padding.right);
+                const yScale = (v) => padding.top + (1 - v / yMax) * (height - padding.top - padding.bottom);
+                const pathD = trailing7
+                  .map((d, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yScale(d.avg)}`)
+                  .join(" ");
+                const yTicks = 5;
+                return (
+                  <>
+                    <svg className="trend-line-svg" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+                      {/* Grid lines */}
+                      {Array.from({ length: yTicks + 1 }, (_, i) => {
+                        const y = padding.top + (i / yTicks) * (height - padding.top - padding.bottom);
+                        return <line key={i} x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="trend-line-grid" />;
+                      })}
+                      {/* Line */}
+                      <path d={pathD} fill="none" stroke="#FFBC00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      {/* Y-axis labels */}
+                      {Array.from({ length: yTicks + 1 }, (_, i) => {
+                        const val = Math.round((yMax * (yTicks - i)) / yTicks);
+                        const y = padding.top + (i / yTicks) * (height - padding.top - padding.bottom);
+                        return (
+                          <text key={i} x={padding.left - 6} y={y + 4} textAnchor="end" className="trend-line-y-label">{formatNumber(val)}</text>
+                        );
+                      })}
+                      {/* X-axis labels */}
+                      {trailing7.length > 0 && Array.from({ length: 5 }, (_, i) => {
+                        const idx = Math.round((i / 4) * (trailing7.length - 1));
+                        const day = trailing7[idx];
+                        if (!day) return null;
+                        const x = xScale(idx);
+                        return (
+                          <text key={i} x={x} y={height - 4} textAnchor="middle" className="trend-line-x-label">{formatDate(day.date)}</text>
+                        );
+                      })}
+                    </svg>
+                    {hoveredLinePointIndex != null && trailing7[hoveredLinePointIndex] && (
+                      <div className="bar-tooltip trend-line-tooltip">
+                        <div className="tooltip-header">
+                          <div className="tooltip-day-name">{getDayOfWeek(trailing7[hoveredLinePointIndex].date)}</div>
+                          <div className="tooltip-date">{formatDate(trailing7[hoveredLinePointIndex].date)}</div>
+                        </div>
+                        <div className="tooltip-divider"></div>
+                        <div className="tooltip-value total">
+                          <span className="tooltip-label">Total (7d avg)</span>
+                          <span className="tooltip-number">{formatNumber(Math.round(trailing7[hoveredLinePointIndex].avg))}</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="no-data">No data available</div>
+          )}
+        </div>
+      </div>
+        </div>
+      </div>
+
       {/* Top Pages - right of chart */}
       <div className="card overview-top-pages-card">
         <h2 className="overview-top-pages-title">Top Pages</h2>
@@ -1117,8 +1143,8 @@ const Visitors = () => {
                 {topPagesData.length > 0 ? (
                   topPagesData.slice(0, 15).map((page, index) => (
                     <tr key={index}>
-                      <td className="overview-top-pages-path" title={page.path}>
-                        {page.title && page.title !== "(not set)" ? page.title : page.path}
+                      <td className="overview-top-pages-path" title={stripSiteNameFromTitle(page.path)}>
+                        {stripSiteNameFromTitle(page.title && page.title !== "(not set)" ? page.title : page.path)}
                       </td>
                       <td className="overview-top-pages-num">{formatNumber(page.views)}</td>
                       <td className="overview-top-pages-num">
@@ -1183,7 +1209,7 @@ const Visitors = () => {
                       style={{ backgroundColor: colors[i % colors.length], opacity: slice.opacity }}
                     />
                     <span className="overview-pie-legend-label">{slice.label}</span>
-                    <span className="overview-pie-legend-pct">{(slice.share * 100).toFixed(0)}%</span>
+                    <span className="overview-pie-legend-values">{(slice.share * 100).toFixed(0)}% | {formatNumber(slice.views)}</span>
                   </div>
                 );
               })}
@@ -1195,18 +1221,165 @@ const Visitors = () => {
       </div>
       </div>
 
-      <div className="card">
-        <div className="visitors-table-header">
-          <div className="visitors-table-title">
-            <h2>Visitors</h2>
-            <span className="visitors-count">({formatNumber(visitors.length)} total)</span>
-          </div>
-          <button className="export-button" onClick={exportToXLSX}>
-            <HiDownload />
-          </button>
+      {/* Overview: Geography, Device, Time Analysis */}
+      {audienceLoading ? (
+        <div className="audience-loading">
+          <div className="spinner"></div>
+          <p>Loading audience data...</p>
         </div>
-        <div className="visitors-table-container">
-          <table className="visitors-table">
+      ) : audienceError ? (
+        <div className="audience-error">
+          <p>⚠️ {audienceError}</p>
+        </div>
+      ) : audienceProfile ? (
+        <div className="overview-audience-sections audience-dashboard">
+          <section className="audience-section audience-section-geography">
+            <div className="audience-section-card">
+              <h2 className="visitors-audience-card-title">Geography</h2>
+              {audienceProfile.geographic?.length ? (
+                <>
+                  <div className="geographic-heatmap-header">
+                    {(() => {
+                      const usUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
+                        const c = (geo.country || "").toLowerCase();
+                        if (c === "united states" || c.includes("united states") || c === "us" || c === "usa") return sum + (geo.users || 0);
+                        return sum;
+                      }, 0);
+                      const nonUsUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
+                        const c = (geo.country || "").toLowerCase();
+                        if (c !== "united states" && !c.includes("united states") && c !== "us" && c !== "usa") return sum + (geo.users || 0);
+                        return sum;
+                      }, 0);
+                      return (
+                        <div className="geographic-heatmap-stats">
+                          US: {usUsers.toLocaleString()} | Non-U.S.: {nonUsUsers.toLocaleString()}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <GeographyHeatmap geographicData={audienceProfile.geographic} />
+                  <div className="audience-subheading">By country</div>
+                  <div className="table-container">
+                    <table className="audience-data-table audience-data-table--clean">
+                      <thead><tr><th>Country</th><th>Region</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                      <tbody>
+                        {audienceProfile.geographic.map((geo, index) => (
+                          <tr key={index}>
+                            <td>{geo.country}</td><td>{geo.region}</td>
+                            <td>{geo.users?.toLocaleString()}</td><td>{geo.sessions?.toLocaleString()}</td><td>{geo.pageViews?.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="no-data">No geographic data</div>
+              )}
+            </div>
+          </section>
+          <section className="audience-section audience-section-device">
+            <div className="audience-section-card">
+              <h2 className="visitors-audience-card-title">Device</h2>
+              {audienceProfile.device?.length ? (
+                <>
+                  <div className="table-container">
+                    <table className="audience-data-table audience-data-table--striped">
+                      <thead><tr><th>Device</th><th>Screen</th><th>Users</th><th>% Users</th><th>Sessions</th><th>% Sessions</th><th>Page Views</th></tr></thead>
+                      <tbody>
+                        {(() => {
+                          const raw = audienceProfile.device || [];
+                          const totalUsers = raw.reduce((s, d) => s + (d.users || 0), 0);
+                          const totalSessions = raw.reduce((s, d) => s + (d.sessions || 0), 0);
+                          const desktopRows = raw.filter((d) => /desktop/i.test(d.device || ""));
+                          const nonDesktopRows = raw.filter((d) => !/desktop/i.test(d.device || ""));
+                          const mergedDesktop = desktopRows.length
+                            ? [{
+                                device: "Desktop",
+                                screenResolution: null,
+                                users: desktopRows.reduce((s, d) => s + (d.users || 0), 0),
+                                sessions: desktopRows.reduce((s, d) => s + (d.sessions || 0), 0),
+                                pageViews: desktopRows.reduce((s, d) => s + (d.pageViews || 0), 0),
+                              }]
+                            : [];
+                          const merged = [...mergedDesktop, ...nonDesktopRows];
+                          return merged.map((device, index) => {
+                            const userPct = totalUsers > 0 ? ((device.users || 0) / totalUsers * 100).toFixed(1) : "0";
+                            const sessionPct = totalSessions > 0 ? ((device.sessions || 0) / totalSessions * 100).toFixed(1) : "0";
+                            const isDesktop = /desktop/i.test(device.device || "");
+                            return (
+                              <tr key={index}>
+                                <td>{formatDeviceDisplay(device.device, device.screenResolution)}</td>
+                                <td>{isDesktop ? "--" : (device.screenResolution || "N/A")}</td>
+                                <td>{(device.users || 0).toLocaleString()}</td>
+                                <td>{userPct}%</td>
+                                <td>{(device.sessions || 0).toLocaleString()}</td>
+                                <td>{sessionPct}%</td>
+                                <td>{(device.pageViews || 0).toLocaleString()}</td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="no-data">No device data</div>
+              )}
+            </div>
+          </section>
+          <section className="audience-section audience-section-time">
+            <div className="audience-section-card">
+              <h2 className="visitors-audience-card-title">Time Analysis</h2>
+              {audienceProfile.timeAnalysis ? (
+                <>
+                  <div className="audience-subheading">By hour</div>
+                  <div className="table-container">
+                    <table className="audience-data-table audience-data-table--dividers">
+                      <thead><tr><th>Hour</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
+                      <tbody>
+                        {audienceProfile.timeAnalysis.byHour?.map((hour, i) => (
+                          <tr key={i}><td>{formatHourLabel(hour.hour)}</td><td>{hour.sessions?.toLocaleString()}</td><td>{hour.users?.toLocaleString()}</td><td>{hour.pageViews?.toLocaleString()}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="audience-subheading">By day of week</div>
+                  <div className="table-container">
+                    <table className="audience-data-table audience-data-table--dividers">
+                      <thead><tr><th>Day of Week</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
+                      <tbody>
+                        {audienceProfile.timeAnalysis.byDayOfWeek?.map((day, i) => (
+                          <tr key={i}><td>{formatDayOfWeekLabel(day.dayOfWeek)}</td><td>{day.sessions?.toLocaleString()}</td><td>{day.users?.toLocaleString()}</td><td>{day.pageViews?.toLocaleString()}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="no-data">No time analysis data</div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+        </>
+      )}
+
+      {visitorsView === "logs" && (
+        <div className="card">
+          <div className="visitors-table-header">
+            <div className="visitors-table-title">
+              <h2>Visitors</h2>
+              <span className="visitors-count">({formatNumber(visitors.length)} total)</span>
+            </div>
+            <button className="export-button" onClick={exportToXLSX}>
+              <HiDownload />
+            </button>
+          </div>
+          <div className="visitors-table-container">
+            <table className="visitors-table">
             <thead>
               <tr>
                 <th>Source</th>
@@ -1350,9 +1523,183 @@ const Visitors = () => {
               Next
             </button>
           </div>
-        )}
-      </div>
-        </>
+          )}
+        </div>
+      )}
+
+      {visitorsView === "logs" && (audienceLoading || audienceError || audienceProfile) && (
+        <div className="visitors-logs-audience">
+          {audienceLoading ? (
+            <div className="audience-loading">
+              <div className="spinner"></div>
+              <p>Loading audience data...</p>
+            </div>
+          ) : audienceError ? (
+            <div className="audience-error">
+              <p>⚠️ {audienceError}</p>
+            </div>
+          ) : audienceProfile ? (
+            <div className="audience-dashboard">
+              <section className="audience-section audience-section-demographics">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Demographics</h2>
+                  {audienceProfile.newReturningMetrics && (
+                    <div className="audience-kpi-row">
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">New Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.newUsers?.toLocaleString()}</div>
+                      </div>
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">Returning Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.returningUsers?.toLocaleString()}</div>
+                      </div>
+                      <div className="audience-kpi-card">
+                        <div className="audience-kpi-label">Total Users</div>
+                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.totalUsers?.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  )}
+                  {audienceProfile.visitorType?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">New vs returning</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Visitor Type</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.visitorType.map((v, i) => (
+                              <tr key={i}><td>{v.type}</td><td>{v.users?.toLocaleString()}</td><td>{v.sessions?.toLocaleString()}</td><td>{v.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.language?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Language</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Language</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.language.map((lang, i) => (
+                              <tr key={i}><td>{lang.language}</td><td>{lang.users?.toLocaleString()}</td><td>{lang.sessions?.toLocaleString()}</td><td>{lang.pageViews?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.demographics?.ageBrackets?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Age</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Age Bracket</th><th>Users</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.demographics.ageBrackets.map((a, i) => (
+                              <tr key={i}><td>{a.bracket}</td><td>{a.users?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {audienceProfile.demographics?.genders?.length > 0 && (
+                    <>
+                      <div className="audience-subheading">Gender</div>
+                      <div className="table-container">
+                        <table className="audience-data-table audience-data-table--clean">
+                          <thead><tr><th>Gender</th><th>Users</th></tr></thead>
+                          <tbody>
+                            {audienceProfile.demographics.genders.map((g, i) => (
+                              <tr key={i}><td>{g.gender}</td><td>{g.users?.toLocaleString()}</td></tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                  {!audienceProfile.visitorType?.length && !audienceProfile.language?.length && !audienceProfile.newReturningMetrics && !audienceProfile.demographics?.ageBrackets?.length && !audienceProfile.demographics?.genders?.length && (
+                    <div className="no-data">No demographics data</div>
+                  )}
+                </div>
+              </section>
+              <section className="audience-section audience-section-power-users">
+                <div className="audience-section-card">
+                  <h2 className="visitors-audience-card-title">Power Users</h2>
+                  <div className="audience-power-users-controls">
+                    <label htmlFor="power-users-date-range-logs">Period:</label>
+                    <select
+                      id="power-users-date-range-logs"
+                      value={powerUsersDateRange}
+                      onChange={(e) => setPowerUsersDateRange(e.target.value)}
+                      className="audience-power-users-select"
+                    >
+                      <option value="7daysAgo">Last 7 Days</option>
+                      <option value="30daysAgo">Last 30 Days</option>
+                      <option value="90daysAgo">Last 90 Days</option>
+                    </select>
+                  </div>
+                  {powerUsersLoading ? (
+                    <div className="audience-loading-inline">
+                      <div className="spinner"></div>
+                      <p>Loading power users...</p>
+                    </div>
+                  ) : powerUsersError ? (
+                    <div className="audience-error-inline"><p>⚠️ {powerUsersError}</p></div>
+                  ) : (
+                    <div className="table-container audience-power-users-table-container">
+                      <table className="audience-data-table audience-data-table--striped">
+                        <thead>
+                          <tr>
+                            <th>Location</th>
+                            <th>First</th>
+                            <th>Last</th>
+                            <th>Sessions</th>
+                            <th>Page Views</th>
+                            <th>Avg Duration</th>
+                            <th>Total Duration</th>
+                            <th>Engagement Rate</th>
+                            <th>Bounce Rate</th>
+                            <th>Active Days</th>
+                            <th>Device</th>
+                            <th>Source</th>
+                            <th>First Page</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {powerUsers.length > 0 ? (
+                            powerUsers.map((user, index) => (
+                              <tr key={index}>
+                                <td>{formatPowerUsersLocation(user.city, user.region, user.country)}</td>
+                                <td>{formatPowerUsersDate(user.firstVisit)}</td>
+                                <td>{formatPowerUsersDate(user.lastVisit)}</td>
+                                <td>{formatNumber(user.sessions)}</td>
+                                <td>{formatNumber(user.pageViews)}</td>
+                                <td>{formatDuration(user.avgSessionDuration)}</td>
+                                <td>{formatDuration(user.totalEngagementDuration)}</td>
+                                <td>{user.engagementRate?.toFixed(1)}%</td>
+                                <td>{user.bounceRate?.toFixed(1)}%</td>
+                                <td>{user.uniqueDays}</td>
+                                <td>{user.operatingSystem} / {user.browser}</td>
+                                <td>{user.sessionSource || "N/A"}</td>
+                                <td>{user.landingPage || "N/A"}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="13" className="no-data">No power users found</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
+        </div>
       )}
 
       {visitorsView === "sources" && (
@@ -1623,321 +1970,6 @@ const Visitors = () => {
             </>
           ) : null}
             </>
-          )}
-        </div>
-      )}
-
-      {visitorsView === "audience" && (
-        <div className="visitors-audience-content">
-          {audienceLoading ? (
-            <div className="audience-loading">
-              <div className="spinner"></div>
-              <p>Loading audience data...</p>
-            </div>
-          ) : audienceError ? (
-            <div className="audience-error">
-              <p>⚠️ {audienceError}</p>
-            </div>
-          ) : audienceProfile ? (
-            <div className="audience-dashboard">
-              {/* Section: Geography */}
-              <section className="audience-section audience-section-geography">
-                <div className="audience-section-card">
-                  <h2 className="visitors-audience-card-title">Geography</h2>
-                  {audienceProfile.geographic?.length ? (
-                    <>
-                      <div className="geographic-heatmap-header">
-                        {(() => {
-                          const usUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
-                            const c = (geo.country || "").toLowerCase();
-                            if (c === "united states" || c.includes("united states") || c === "us" || c === "usa") return sum + (geo.users || 0);
-                            return sum;
-                          }, 0);
-                          const nonUsUsers = (audienceProfile.geographic || []).reduce((sum, geo) => {
-                            const c = (geo.country || "").toLowerCase();
-                            if (c !== "united states" && !c.includes("united states") && c !== "us" && c !== "usa") return sum + (geo.users || 0);
-                            return sum;
-                          }, 0);
-                          return (
-                            <div className="geographic-heatmap-stats">
-                              US: {usUsers.toLocaleString()} | Non-U.S.: {nonUsUsers.toLocaleString()}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                      <GeographyHeatmap geographicData={audienceProfile.geographic} />
-                      <div className="audience-subheading">By country</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--clean">
-                          <thead><tr><th>Country</th><th>Region</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.geographic.map((geo, index) => (
-                              <tr key={index}>
-                                <td>{geo.country}</td><td>{geo.region}</td>
-                                <td>{geo.users?.toLocaleString()}</td><td>{geo.sessions?.toLocaleString()}</td><td>{geo.pageViews?.toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="no-data">No geographic data</div>
-                  )}
-                </div>
-              </section>
-
-              {/* Section: Device */}
-              <section className="audience-section audience-section-device">
-                <div className="audience-section-card">
-                  <h2 className="visitors-audience-card-title">Device</h2>
-                  {audienceProfile.device?.length ? (
-                    <>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--striped">
-                          <thead><tr><th>Device</th><th>Screen</th><th>Users</th><th>% Users</th><th>Sessions</th><th>% Sessions</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {(() => {
-                              const raw = audienceProfile.device || [];
-                              const totalUsers = raw.reduce((s, d) => s + (d.users || 0), 0);
-                              const totalSessions = raw.reduce((s, d) => s + (d.sessions || 0), 0);
-                              const desktopRows = raw.filter((d) => /desktop/i.test(d.device || ""));
-                              const nonDesktopRows = raw.filter((d) => !/desktop/i.test(d.device || ""));
-                              const mergedDesktop = desktopRows.length
-                                ? [{
-                                    device: "Desktop",
-                                    screenResolution: null,
-                                    users: desktopRows.reduce((s, d) => s + (d.users || 0), 0),
-                                    sessions: desktopRows.reduce((s, d) => s + (d.sessions || 0), 0),
-                                    pageViews: desktopRows.reduce((s, d) => s + (d.pageViews || 0), 0),
-                                  }]
-                                : [];
-                              const merged = [...mergedDesktop, ...nonDesktopRows];
-                              return merged.map((device, index) => {
-                                const userPct = totalUsers > 0 ? ((device.users || 0) / totalUsers * 100).toFixed(1) : "0";
-                                const sessionPct = totalSessions > 0 ? ((device.sessions || 0) / totalSessions * 100).toFixed(1) : "0";
-                                const isDesktop = /desktop/i.test(device.device || "");
-                                return (
-                                  <tr key={index}>
-                                    <td>{formatDeviceDisplay(device.device, device.screenResolution)}</td>
-                                    <td>{isDesktop ? "--" : (device.screenResolution || "N/A")}</td>
-                                    <td>{(device.users || 0).toLocaleString()}</td>
-                                    <td>{userPct}%</td>
-                                    <td>{(device.sessions || 0).toLocaleString()}</td>
-                                    <td>{sessionPct}%</td>
-                                    <td>{(device.pageViews || 0).toLocaleString()}</td>
-                                  </tr>
-                                );
-                              });
-                            })()}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="no-data">No device data</div>
-                  )}
-                </div>
-              </section>
-
-              {/* Section: Demographics */}
-              <section className="audience-section audience-section-demographics">
-                <div className="audience-section-card">
-                  <h2 className="visitors-audience-card-title">Demographics</h2>
-                  {audienceProfile.newReturningMetrics && (
-                    <div className="audience-kpi-row">
-                      <div className="audience-kpi-card">
-                        <div className="audience-kpi-label">New Users</div>
-                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.newUsers?.toLocaleString()}</div>
-                      </div>
-                      <div className="audience-kpi-card">
-                        <div className="audience-kpi-label">Returning Users</div>
-                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.returningUsers?.toLocaleString()}</div>
-                      </div>
-                      <div className="audience-kpi-card">
-                        <div className="audience-kpi-label">Total Users</div>
-                        <div className="audience-kpi-value">{audienceProfile.newReturningMetrics.totalUsers?.toLocaleString()}</div>
-                      </div>
-                    </div>
-                  )}
-                  {audienceProfile.visitorType?.length > 0 && (
-                    <>
-                      <div className="audience-subheading">New vs returning</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--clean">
-                          <thead><tr><th>Visitor Type</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.visitorType.map((v, i) => (
-                              <tr key={i}><td>{v.type}</td><td>{v.users?.toLocaleString()}</td><td>{v.sessions?.toLocaleString()}</td><td>{v.pageViews?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                  {audienceProfile.language?.length > 0 && (
-                    <>
-                      <div className="audience-subheading">Language</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--clean">
-                          <thead><tr><th>Language</th><th>Users</th><th>Sessions</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.language.map((lang, i) => (
-                              <tr key={i}><td>{lang.language}</td><td>{lang.users?.toLocaleString()}</td><td>{lang.sessions?.toLocaleString()}</td><td>{lang.pageViews?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                  {audienceProfile.demographics?.ageBrackets?.length > 0 && (
-                    <>
-                      <div className="audience-subheading">Age</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--clean">
-                          <thead><tr><th>Age Bracket</th><th>Users</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.demographics.ageBrackets.map((a, i) => (
-                              <tr key={i}><td>{a.bracket}</td><td>{a.users?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                  {audienceProfile.demographics?.genders?.length > 0 && (
-                    <>
-                      <div className="audience-subheading">Gender</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--clean">
-                          <thead><tr><th>Gender</th><th>Users</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.demographics.genders.map((g, i) => (
-                              <tr key={i}><td>{g.gender}</td><td>{g.users?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
-                  {!audienceProfile.visitorType?.length && !audienceProfile.language?.length && !audienceProfile.newReturningMetrics && !audienceProfile.demographics?.ageBrackets?.length && !audienceProfile.demographics?.genders?.length && (
-                    <div className="no-data">No demographics data</div>
-                  )}
-                </div>
-              </section>
-
-              {/* Section: Time Analysis */}
-              <section className="audience-section audience-section-time">
-                <div className="audience-section-card">
-                  <h2 className="visitors-audience-card-title">Time Analysis</h2>
-                  {audienceProfile.timeAnalysis ? (
-                    <>
-                      <div className="audience-subheading">By hour</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--dividers">
-                          <thead><tr><th>Hour</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.timeAnalysis.byHour?.map((hour, i) => (
-                              <tr key={i}><td>{formatHourLabel(hour.hour)}</td><td>{hour.sessions?.toLocaleString()}</td><td>{hour.users?.toLocaleString()}</td><td>{hour.pageViews?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="audience-subheading">By day of week</div>
-                      <div className="table-container">
-                        <table className="audience-data-table audience-data-table--dividers">
-                          <thead><tr><th>Day of Week</th><th>Sessions</th><th>Users</th><th>Page Views</th></tr></thead>
-                          <tbody>
-                            {audienceProfile.timeAnalysis.byDayOfWeek?.map((day, i) => (
-                              <tr key={i}><td>{formatDayOfWeekLabel(day.dayOfWeek)}</td><td>{day.sessions?.toLocaleString()}</td><td>{day.users?.toLocaleString()}</td><td>{day.pageViews?.toLocaleString()}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="no-data">No time analysis data</div>
-                  )}
-                </div>
-              </section>
-
-              {/* Section: Power Users */}
-              <section className="audience-section audience-section-power-users">
-                <div className="audience-section-card">
-                  <h2 className="visitors-audience-card-title">Power Users</h2>
-                  <div className="audience-power-users-controls">
-                    <label htmlFor="power-users-date-range">Period:</label>
-                    <select
-                      id="power-users-date-range"
-                      value={powerUsersDateRange}
-                      onChange={(e) => setPowerUsersDateRange(e.target.value)}
-                      className="audience-power-users-select"
-                    >
-                      <option value="7daysAgo">Last 7 Days</option>
-                      <option value="30daysAgo">Last 30 Days</option>
-                      <option value="90daysAgo">Last 90 Days</option>
-                    </select>
-                  </div>
-                  {powerUsersLoading ? (
-                    <div className="audience-loading-inline">
-                      <div className="spinner"></div>
-                      <p>Loading power users...</p>
-                    </div>
-                  ) : powerUsersError ? (
-                    <div className="audience-error-inline"><p>⚠️ {powerUsersError}</p></div>
-                  ) : (
-                    <div className="table-container audience-power-users-table-container">
-                      <table className="audience-data-table audience-data-table--striped">
-                        <thead>
-                          <tr>
-                            <th>Location</th>
-                            <th>First</th>
-                            <th>Last</th>
-                            <th>Sessions</th>
-                            <th>Page Views</th>
-                            <th>Avg Duration</th>
-                            <th>Total Duration</th>
-                            <th>Engagement Rate</th>
-                            <th>Bounce Rate</th>
-                            <th>Active Days</th>
-                            <th>Device</th>
-                            <th>Source</th>
-                            <th>First Page</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {powerUsers.length > 0 ? (
-                            powerUsers.map((user, index) => (
-                              <tr key={index}>
-                                <td>{formatPowerUsersLocation(user.city, user.region, user.country)}</td>
-                                <td>{formatPowerUsersDate(user.firstVisit)}</td>
-                                <td>{formatPowerUsersDate(user.lastVisit)}</td>
-                                <td>{formatNumber(user.sessions)}</td>
-                                <td>{formatNumber(user.pageViews)}</td>
-                                <td>{formatDuration(user.avgSessionDuration)}</td>
-                                <td>{formatDuration(user.totalEngagementDuration)}</td>
-                                <td>{user.engagementRate?.toFixed(1)}%</td>
-                                <td>{user.bounceRate?.toFixed(1)}%</td>
-                                <td>{user.uniqueDays}</td>
-                                <td>{user.operatingSystem} / {user.browser}</td>
-                                <td>{user.sessionSource || "N/A"}</td>
-                                <td>{user.landingPage || "N/A"}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan="13" className="no-data">No power users found</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-          ) : (
-            <div className="no-data">No audience data</div>
           )}
         </div>
       )}
