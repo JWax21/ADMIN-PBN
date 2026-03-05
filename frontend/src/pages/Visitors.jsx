@@ -1031,7 +1031,7 @@ const Visitors = () => {
       <div className="overview-chart-row">
       {/* Combined card: bar chart + line chart */}
       <div className="card overview-combined-charts-card">
-        <h2 className="overview-combined-charts-title">Traffic</h2>
+        <h2 className="overview-top-pages-title">Traffic</h2>
         <div className="overview-charts-column">
       {/* Daily Trends Chart (top) */}
       <div className="trend-card-inner">
@@ -1385,7 +1385,7 @@ const Visitors = () => {
                             );
                           })}
                         </div>
-                        <span className="overview-sources-bar-label">{formatDate(day.date)}</span>
+                        <span className="overview-sources-bar-label">{i + 1}D</span>
                       </div>
                     );
                   })}
