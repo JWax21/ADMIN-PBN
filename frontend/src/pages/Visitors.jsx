@@ -315,6 +315,17 @@ const Visitors = () => {
     }
   }, [dateRange, visitorsView, powerUsersDateRange]);
 
+  const trailing7LineData = useMemo(() => {
+    const data = dailyTrendsAllTime;
+    if (!data.length) return [];
+    return data.map((_, i) => {
+      const start = Math.max(0, i - 6);
+      const slice = data.slice(start, i + 1);
+      const sum = slice.reduce((s, d) => s + (d.total || 0), 0);
+      return { date: data[i].date, avg: slice.length ? sum / slice.length : 0 };
+    });
+  }, [dailyTrendsAllTime]);
+
   useEffect(() => {
     const el = lineChartContainerRef.current;
     if (!el) return;
@@ -480,17 +491,6 @@ const Visitors = () => {
       setDailyTrendsAllTime([]);
     }
   };
-
-  const trailing7LineData = useMemo(() => {
-    const data = dailyTrendsAllTime;
-    if (!data.length) return [];
-    return data.map((_, i) => {
-      const start = Math.max(0, i - 6);
-      const slice = data.slice(start, i + 1);
-      const sum = slice.reduce((s, d) => s + (d.total || 0), 0);
-      return { date: data[i].date, avg: slice.length ? sum / slice.length : 0 };
-    });
-  }, [dailyTrendsAllTime]);
 
   const fetchMetrics = async () => {
     try {
@@ -1351,7 +1351,7 @@ const Visitors = () => {
         ) : overviewDailySources?.daily?.length > 0 ? (
           (() => {
             const daily = overviewDailySources.daily.slice(-7);
-            const allSourceNames = [...new Set(daily.flatMap((d) => d.sources.map((s) => s.source)))];
+            const allSourceNames = [...new Set(daily.flatMap((d) => (d.sources || []).map((s) => s.source)))];
             const sourceOrder = allSourceNames.sort((a, b) => {
               const totalA = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === a)?.sessions || 0), 0);
               const totalB = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === b)?.sessions || 0), 0);
@@ -1364,12 +1364,12 @@ const Visitors = () => {
                 <div className="overview-sources-bars">
                   {daily.map((day, i) => {
                     const total = day.totalSessions || 1;
-                    let cum = 0;
+                    const sources = day.sources || [];
                     return (
-                      <div key={day.date} className="overview-sources-bar-cell">
+                      <div key={day.date || i} className="overview-sources-bar-cell">
                         <div className="overview-sources-bar-stack">
                           {sourceOrder.map((src) => {
-                            const sessions = day.sources.find((s) => s.source === src)?.sessions || 0;
+                            const sessions = sources.find((s) => s.source === src)?.sessions || 0;
                             const pct = (sessions / total) * 100;
                             if (pct <= 0) return null;
                             cum += pct;
