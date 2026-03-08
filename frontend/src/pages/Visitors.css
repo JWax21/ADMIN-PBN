@@ -1112,6 +1112,39 @@
   opacity: 0.9;
 }
 
+.trend-bar-segment-source {
+  border-radius: 0;
+}
+
+.trend-bars-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.trend-bars-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
+  color: #6b7280;
+}
+
+.trend-bars-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.trend-bars-legend-label {
+  white-space: nowrap;
+}
+
 .bar-tooltip {
   position: absolute;
   bottom: 100%;
@@ -1125,8 +1158,7 @@
   border: 1px solid #d1d5db;
   font-size: 0.875rem;
   font-family: 'Montserrat', sans-serif;
-  min-width: 180px;
-  min-height: 140px;
+  min-width: 160px;
   z-index: 10;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }

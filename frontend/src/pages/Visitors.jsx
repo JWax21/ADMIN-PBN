@@ -170,13 +170,13 @@ const Visitors = () => {
     if (visitorsView !== "overview") return;
     setOverviewDailySourcesLoading(true);
     apiClient
-      .get("/api/analytics/daily-traffic-by-source", { params: { startDate: "7daysAgo", endDate: "today" } })
+      .get("/api/analytics/daily-traffic-by-source", { params: { startDate: dateRange, endDate: "today" } })
       .then((res) => {
         if (res.data.success) setOverviewDailySources(res.data.data);
       })
       .catch(() => setOverviewDailySources(null))
       .finally(() => setOverviewDailySourcesLoading(false));
-  }, [visitorsView]);
+  }, [visitorsView, dateRange]);
 
   const fetchTopPages = async () => {
     setTopPagesLoading(true);
@@ -325,6 +325,21 @@ const Visitors = () => {
       return { date: data[i].date, avg: slice.length ? sum / slice.length : 0 };
     });
   }, [dailyTrendsAllTime]);
+
+  /** Lookup by date and source order/colors for Traffic stacked-by-source chart */
+  const trafficBySource = useMemo(() => {
+    const daily = overviewDailySources?.daily || [];
+    const byDate = Object.fromEntries(daily.map((d) => [d.date, d]));
+    const allSourceNames = [...new Set(daily.flatMap((d) => (d.sources || []).map((s) => s.source)))];
+    const sourceOrder = allSourceNames.sort((a, b) => {
+      const totalA = daily.reduce((sum, d) => sum + (d.sources?.find((s) => s.source === a)?.sessions || 0), 0);
+      const totalB = daily.reduce((sum, d) => sum + (d.sources?.find((s) => s.source === b)?.sessions || 0), 0);
+      return totalB - totalA;
+    });
+    const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+    const getSourceColor = (source) => colors[sourceOrder.indexOf(source) % colors.length];
+    return { byDate, sourceOrder, getSourceColor };
+  }, [overviewDailySources]);
 
   useEffect(() => {
     const el = lineChartContainerRef.current;
@@ -1066,17 +1081,17 @@ const Visitors = () => {
                   ))}
                 </div>
 
-                {/* Stacked Bars */}
+                {/* Stacked Bars (by source when available, else new/returning) */}
                 <div className="trend-bars">
                   {(() => {
                     const maxTotal = 100;
+                    const { byDate: sourceByDate, sourceOrder, getSourceColor } = trafficBySource;
+                    const hasSourceData = Object.keys(sourceByDate).length > 0;
                     return dailyTrends.slice(-30).map((day, index) => {
-                      // Total bar height as percentage of container
-                      const totalBarHeight = Math.min(100, (day.total / maxTotal) * 100);
-                      // Segment heights as percentages of the bar (not container)
-                      const dayTotal = day.total;
-                      const returningHeight = dayTotal > 0 ? (day.returning / dayTotal) * 100 : 0;
-                      const newHeight = dayTotal > 0 ? (day.new / dayTotal) * 100 : 0;
+                      const daySource = sourceByDate[day.date];
+                      const useSources = hasSourceData && daySource?.sources?.length;
+                      const total = useSources ? (daySource.totalSessions || 0) : day.total;
+                      const totalBarHeight = Math.min(100, (total / maxTotal) * 100);
                       return (
                         <div
                           key={index}
@@ -1086,66 +1101,116 @@ const Visitors = () => {
                         >
                           <div
                             className="trend-bar-stacked"
-                            style={{
-                              height: `${totalBarHeight}%`,
-                            }}
+                            style={{ height: `${totalBarHeight}%` }}
                           >
-                            {/* Returning visitors (bottom segment) */}
-                            {day.returning > 0 && (
-                              <div
-                                className="trend-bar-segment returning"
-                                style={{
-                                  height: `${returningHeight}%`,
-                                  minHeight: "2px",
-                                }}
-                              ></div>
-                            )}
-                            {/* New visitors (top segment) */}
-                            {day.new > 0 && (
-                              <div
-                                className="trend-bar-segment new"
-                                style={{
-                                  height: `${newHeight}%`,
-                                  minHeight: "2px",
-                                }}
-                              ></div>
+                            {useSources ? (
+                              (daySource.sources || []).length > 0 ? (
+                                sourceOrder.map((src) => {
+                                  const sessions = daySource.sources.find((s) => s.source === src)?.sessions || 0;
+                                  const dayTotal = daySource.totalSessions || 1;
+                                  const pct = (sessions / dayTotal) * 100;
+                                  if (pct <= 0) return null;
+                                  return (
+                                    <div
+                                      key={src}
+                                      className="trend-bar-segment trend-bar-segment-source"
+                                      style={{
+                                        height: `${pct}%`,
+                                        minHeight: "2px",
+                                        backgroundColor: getSourceColor(src),
+                                      }}
+                                    />
+                                  );
+                                })
+                              ) : (
+                                <div
+                                  className="trend-bar-segment new"
+                                  style={{ height: "100%", minHeight: "2px" }}
+                                />
+                              )
+                            ) : (
+                              <>
+                                {day.returning > 0 && (
+                                  <div
+                                    className="trend-bar-segment returning"
+                                    style={{
+                                      height: `${(day.total ? (day.returning / day.total) * 100 : 0)}%`,
+                                      minHeight: "2px",
+                                    }}
+                                  />
+                                )}
+                                {day.new > 0 && (
+                                  <div
+                                    className="trend-bar-segment new"
+                                    style={{
+                                      height: `${(day.total ? (day.new / day.total) * 100 : 0)}%`,
+                                      minHeight: "2px",
+                                    }}
+                                  />
+                                )}
+                              </>
                             )}
                             {hoveredBar === index && (
                               <div className="bar-tooltip">
                                 <div className="tooltip-header">
-                                  <div className="tooltip-day-name">
-                                    {getDayOfWeek(day.date)}
-                                  </div>
-                                  <div className="tooltip-date">
-                                    {formatDate(day.date)}
-                                  </div>
+                                  <div className="tooltip-day-name">{getDayOfWeek(day.date)}</div>
+                                  <div className="tooltip-date">{formatDate(day.date)}</div>
                                 </div>
                                 <div className="tooltip-divider"></div>
-                                <div className="tooltip-value tooltip-new">
-                                  <span className="tooltip-label">New</span>
-                                  <span className="tooltip-number">{formatNumber(day.new)}</span>
-                                </div>
-                                <div className="tooltip-value tooltip-returning">
-                                  <span className="tooltip-label">Returning</span>
-                                  <span className="tooltip-number">{formatNumber(day.returning)}</span>
-                                </div>
-                                <div className="tooltip-value total">
-                                  <span className="tooltip-label">Total</span>
-                                  <span className="tooltip-number">{formatNumber(day.total)}</span>
-                                </div>
+                                {useSources && daySource?.sources?.length ? (
+                                  <>
+                                    {sourceOrder.map((src) => {
+                                      const sessions = daySource.sources.find((s) => s.source === src)?.sessions || 0;
+                                      if (sessions === 0) return null;
+                                      return (
+                                        <div key={src} className="tooltip-value">
+                                          <span className="tooltip-label">{src}</span>
+                                          <span className="tooltip-number">{formatNumber(sessions)}</span>
+                                        </div>
+                                      );
+                                    })}
+                                    <div className="tooltip-value total">
+                                      <span className="tooltip-label">Total</span>
+                                      <span className="tooltip-number">{formatNumber(daySource.totalSessions || 0)}</span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="tooltip-value tooltip-new">
+                                      <span className="tooltip-label">New</span>
+                                      <span className="tooltip-number">{formatNumber(day.new)}</span>
+                                    </div>
+                                    <div className="tooltip-value tooltip-returning">
+                                      <span className="tooltip-label">Returning</span>
+                                      <span className="tooltip-number">{formatNumber(day.returning)}</span>
+                                    </div>
+                                    <div className="tooltip-value total">
+                                      <span className="tooltip-label">Total</span>
+                                      <span className="tooltip-number">{formatNumber(day.total)}</span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
                           {index % 5 === 0 && (
-                            <span className="trend-label">
-                              {formatDate(day.date)}
-                            </span>
+                            <span className="trend-label">{formatDate(day.date)}</span>
                           )}
                         </div>
                       );
                     });
                   })()}
                 </div>
+                {trafficBySource.sourceOrder.length > 0 && (
+                  <div className="trend-bars-legend">
+                    {trafficBySource.sourceOrder.map((src) => (
+                      <span key={src} className="trend-bars-legend-item">
+                        <span className="trend-bars-legend-dot" style={{ backgroundColor: trafficBySource.getSourceColor(src) }} />
+                        <span className="trend-bars-legend-label">{src}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ) : (
