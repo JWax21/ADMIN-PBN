@@ -229,7 +229,7 @@
   gap: 0.5rem;
   flex: 1;
   min-width: 0;
-  height: 100%;
+  min-height: 0;
   overflow: visible;
 }
 
@@ -237,6 +237,33 @@
 .overview-combined-charts-card .trend-line-card-inner {
   flex: 0 0 auto;
   min-width: 0;
+}
+
+/* Fixed heights so both charts fit in the row: bar section + line section */
+.overview-combined-charts-card .trend-card-inner-bar {
+  flex: 0 0 155px;
+  height: 155px;
+  min-height: 155px;
+  padding-top: 12px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.overview-combined-charts-card .trend-card-inner-bar .trend-chart {
+  height: 138px;
+  min-height: 138px;
+}
+
+.overview-combined-charts-card .trend-line-card-inner {
+  flex: 0 0 145px;
+  height: 145px;
+  min-height: 145px;
+  overflow: visible;
+}
+
+.overview-combined-charts-card .trend-line-card-inner .trend-line-chart {
+  height: 140px;
+  min-height: 140px;
 }
 
 .trend-card-inner,
@@ -247,10 +274,6 @@
   border: none;
   box-shadow: none;
   overflow: visible;
-}
-
-.trend-card-inner-bar {
-  padding-top: 90px;
 }
 
 .overview-top-pages-card {
