@@ -1046,10 +1046,22 @@ const Visitors = () => {
       <div className="overview-chart-row">
       {/* Combined card: bar chart + line chart */}
       <div className="card overview-combined-charts-card">
-        <h2 className="overview-top-pages-title">Traffic</h2>
+        <div className="overview-traffic-card-header">
+          <h2 className="overview-top-pages-title">Traffic</h2>
+          {trafficBySource.sourceOrder.length > 0 && (
+            <div className="trend-bars-legend">
+              {trafficBySource.sourceOrder.slice(0, 3).map((src) => (
+                <span key={src} className="trend-bars-legend-item">
+                  <span className="trend-bars-legend-dot" style={{ backgroundColor: trafficBySource.getSourceColor(src) }} />
+                  <span className="trend-bars-legend-label">{src}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="overview-charts-column">
-      {/* Daily Trends Chart (top) */}
-      <div className="trend-card-inner">
+      {/* Daily Trends Chart (top) - padding-top keeps tooltip inside card */}
+      <div className="trend-card-inner trend-card-inner-bar">
         <div className="trend-chart">
           {dailyTrends.length > 0 ? (
             <div className="trend-chart-container">
@@ -1201,16 +1213,6 @@ const Visitors = () => {
                     });
                   })()}
                 </div>
-                {trafficBySource.sourceOrder.length > 0 && (
-                  <div className="trend-bars-legend">
-                    {trafficBySource.sourceOrder.slice(0, 3).map((src) => (
-                      <span key={src} className="trend-bars-legend-item">
-                        <span className="trend-bars-legend-dot" style={{ backgroundColor: trafficBySource.getSourceColor(src) }} />
-                        <span className="trend-bars-legend-label">{src}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           ) : (
@@ -1393,8 +1395,9 @@ const Visitors = () => {
                     return topPagesData.slice(0, 15).map((page, index) => {
                       const cat = categorizePageFromPath(page.path);
                       const rowColor = categoryToColor[cat] || "#9ca3af";
+                      const bgHighlight = rowColor.length === 7 ? `${rowColor}22` : rowColor;
                       return (
-                        <tr key={index} className="overview-top-pages-row-by-category" style={{ borderLeftColor: rowColor }} title={CATEGORY_LABELS[cat] || cat}>
+                        <tr key={index} className="overview-top-pages-row-by-category" style={{ backgroundColor: bgHighlight }} title={CATEGORY_LABELS[cat] || cat}>
                           <td className="overview-top-pages-path" title={stripSiteNameFromTitle(page.path)}>
                             {stripSiteNameFromTitle(page.title && page.title !== "(not set)" ? page.title : page.path)}
                           </td>
