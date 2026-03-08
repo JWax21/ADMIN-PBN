@@ -203,12 +203,14 @@
 }
 
 .overview-combined-charts-card {
-  flex: 1;
+  flex: 0 0 50%;
+  width: 50%;
+  max-width: 50%;
   min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 1rem 1.25rem;
+  padding: 1rem 1.25rem !important;
   min-height: 0;
   overflow: visible;
 }
@@ -248,15 +250,13 @@
 }
 
 .overview-top-pages-card {
-  flex: 0 0 320px;
-  min-width: 280px;
-  max-width: 380px;
+  flex: 1;
+  min-width: 200px;
   height: 100%;
   display: flex;
   flex-direction: column;
   padding: 1rem 1.25rem !important;
   min-height: 0;
-  overflow: hidden;
   overflow: hidden;
 }
 
@@ -314,6 +314,10 @@
   font-size: 0.8125rem;
 }
 
+.overview-top-pages-row-by-category {
+  border-left: 4px solid transparent;
+}
+
 .overview-top-pages-path {
   max-width: 160px;
   overflow: hidden;
@@ -327,13 +331,12 @@
 }
 
 .overview-category-pie-card {
-  flex: 0 0 200px;
+  flex: 1;
   min-width: 180px;
-  max-width: 220px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0.75rem 1rem !important;
+  padding: 1rem 1.25rem !important;
   overflow: hidden;
   min-height: 0;
 }

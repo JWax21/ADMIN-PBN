@@ -1203,7 +1203,7 @@ const Visitors = () => {
                 </div>
                 {trafficBySource.sourceOrder.length > 0 && (
                   <div className="trend-bars-legend">
-                    {trafficBySource.sourceOrder.map((src) => (
+                    {trafficBySource.sourceOrder.slice(0, 3).map((src) => (
                       <span key={src} className="trend-bars-legend-item">
                         <span className="trend-bars-legend-dot" style={{ backgroundColor: trafficBySource.getSourceColor(src) }} />
                         <span className="trend-bars-legend-label">{src}</span>
@@ -1304,48 +1304,7 @@ const Visitors = () => {
         </div>
       </div>
 
-      {/* Top Pages - right of chart */}
-      <div className="card overview-top-pages-card">
-        <h2 className="overview-top-pages-title">Top Pages</h2>
-        {topPagesLoading ? (
-          <div className="overview-top-pages-loading">
-            <div className="spinner"></div>
-          </div>
-        ) : (
-          <div className="overview-top-pages-table-wrap">
-            <table className="overview-top-pages-table">
-              <thead>
-                <tr>
-                  <th>Page</th>
-                  <th>Views</th>
-                  <th>Avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topPagesData.length > 0 ? (
-                  topPagesData.slice(0, 15).map((page, index) => (
-                    <tr key={index}>
-                      <td className="overview-top-pages-path" title={stripSiteNameFromTitle(page.path)}>
-                        {stripSiteNameFromTitle(page.title && page.title !== "(not set)" ? page.title : page.path)}
-                      </td>
-                      <td className="overview-top-pages-num">{formatNumber(page.views)}</td>
-                      <td className="overview-top-pages-num">
-                        {page.avgDuration != null ? formatDuration(page.avgDuration) : "—"}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="3" className="no-data">No data</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Category pie: page views by category, opacity = weighted avg engagement */}
+      {/* Page views by category - before Top Pages */}
       <div className="card overview-category-pie-card">
         <h2 className="overview-top-pages-title">Page views by category</h2>
         {topPagesLoading ? (
@@ -1406,70 +1365,58 @@ const Visitors = () => {
         )}
       </div>
 
-      {/* Sources: 7-day stacked bars (skinny), right of pie */}
-      <div className="card overview-sources-card">
-        <h2 className="overview-top-pages-title">Sources</h2>
-        {overviewDailySourcesLoading ? (
+      {/* Top Pages */}
+      <div className="card overview-top-pages-card">
+        <h2 className="overview-top-pages-title">Top Pages</h2>
+        {topPagesLoading ? (
           <div className="overview-top-pages-loading">
             <div className="spinner"></div>
           </div>
-        ) : overviewDailySources?.daily?.length > 0 ? (
-          (() => {
-            const daily = overviewDailySources.daily.slice(-7);
-            const allSourceNames = [...new Set(daily.flatMap((d) => (d.sources || []).map((s) => s.source)))];
-            const sourceOrder = allSourceNames.sort((a, b) => {
-              const totalA = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === a)?.sessions || 0), 0);
-              const totalB = daily.reduce((sum, d) => sum + (d.sources.find((s) => s.source === b)?.sessions || 0), 0);
-              return totalB - totalA;
-            });
-            const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
-            const getSourceColor = (source) => colors[sourceOrder.indexOf(source) % colors.length];
-            return (
-              <div className="overview-sources-chart">
-                <div className="overview-sources-bars">
-                  {daily.map((day, i) => {
-                    const total = day.totalSessions || 1;
-                    const sources = day.sources || [];
-                    return (
-                      <div key={day.date || i} className="overview-sources-bar-cell">
-                        <div className="overview-sources-bar-stack">
-                          {sourceOrder.map((src) => {
-                            const sessions = sources.find((s) => s.source === src)?.sessions || 0;
-                            const pct = (sessions / total) * 100;
-                            if (pct <= 0) return null;
-                            return (
-                              <div
-                                key={src}
-                                className="overview-sources-bar-segment"
-                                style={{
-                                  height: `${pct}%`,
-                                  backgroundColor: getSourceColor(src),
-                                }}
-                                title={`${src}: ${(pct).toFixed(0)}%`}
-                              />
-                            );
-                          })}
-                        </div>
-                        <span className="overview-sources-bar-label">{i + 1}D</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="overview-sources-legend">
-                  {sourceOrder.map((src) => (
-                    <div key={src} className="overview-sources-legend-item">
-                      <span className="overview-sources-legend-dot" style={{ backgroundColor: getSourceColor(src) }} />
-                      <span className="overview-sources-legend-label">{src}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()
         ) : (
-          <div className="no-data">No data</div>
+          <div className="overview-top-pages-table-wrap">
+            <table className="overview-top-pages-table">
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Views</th>
+                  <th>Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topPagesData.length > 0 ? (
+                  (() => {
+                    const categoryColors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+                    const categoryToColor = {};
+                    categoryPieData.forEach((slice, i) => {
+                      categoryToColor[slice.category] = categoryColors[i % categoryColors.length];
+                    });
+                    return topPagesData.slice(0, 15).map((page, index) => {
+                      const cat = categorizePageFromPath(page.path);
+                      const rowColor = categoryToColor[cat] || "#9ca3af";
+                      return (
+                        <tr key={index} className="overview-top-pages-row-by-category" style={{ borderLeftColor: rowColor }} title={CATEGORY_LABELS[cat] || cat}>
+                          <td className="overview-top-pages-path" title={stripSiteNameFromTitle(page.path)}>
+                            {stripSiteNameFromTitle(page.title && page.title !== "(not set)" ? page.title : page.path)}
+                          </td>
+                          <td className="overview-top-pages-num">{formatNumber(page.views)}</td>
+                          <td className="overview-top-pages-num">
+                            {page.avgDuration != null ? formatDuration(page.avgDuration) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()
+                ) : (
+                  <tr>
+                    <td colSpan="3" className="no-data">No data</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
+
       </div>
 
       {/* Overview: Geography, Device, Time Analysis */}
