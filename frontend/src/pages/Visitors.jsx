@@ -349,9 +349,15 @@ const Visitors = () => {
       if (w > 0) setLineChartWidth(w);
     };
     update();
+    const rafId = requestAnimationFrame(() => update());
+    const t = setTimeout(update, 150);
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(t);
+      ro.disconnect();
+    };
   }, [visitorsView, trailing7LineData?.length]);
 
   const fetchPowerUsers = async () => {
@@ -1254,7 +1260,7 @@ const Visitors = () => {
                 const yTicks = 5;
                 return (
                   <>
-                    <svg className="trend-line-svg" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+                    <svg className="trend-line-svg" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
                       {/* Grid lines */}
                       {Array.from({ length: yTicks + 1 }, (_, i) => {
                         const y = padding.top + (i / yTicks) * (height - padding.top - padding.bottom);

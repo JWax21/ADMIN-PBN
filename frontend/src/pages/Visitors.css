@@ -259,12 +259,22 @@
   height: 145px;
   min-height: 145px;
   overflow: visible;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .overview-combined-charts-card .trend-line-card-inner .trend-line-chart {
   height: 140px;
   min-height: 140px;
   width: 100%;
+  min-width: 0;
+}
+
+.overview-combined-charts-card .trend-line-card-inner .trend-line-chart-container {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
 }
 
 .trend-card-inner,
