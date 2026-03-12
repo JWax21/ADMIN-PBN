@@ -208,6 +208,11 @@
   background: white;
 }
 
+.shopping-sessions-table-events {
+  min-width: 900px;
+  table-layout: fixed;
+}
+
 .shopping-sessions-table thead {
   position: sticky;
   top: 0;
@@ -217,45 +222,80 @@
 
 .shopping-sessions-table th {
   text-align: left;
-  padding: 0.75rem 1rem;
-  font-size: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: #374151;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
   background: #f3f4f6;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shopping-sessions-table td {
-  padding: 0.75rem 1rem;
-  font-size: 0.875rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8125rem;
   color: #111827;
+  vertical-align: top;
 }
 
 .shopping-sessions-table tr:hover {
   background-color: #f9fafb;
 }
 
-.shopping-sessions-page-cell {
-  max-width: 300px;
+/* Column widths for All Events table only - ensure headers and content fit */
+.shopping-sessions-table-events th:nth-child(1),
+.shopping-sessions-table-events td:nth-child(1) { width: 8%; min-width: 4.5rem; }
+.shopping-sessions-table-events th:nth-child(2),
+.shopping-sessions-table-events td:nth-child(2) { width: 8%; min-width: 4rem; }
+.shopping-sessions-table-events th:nth-child(3),
+.shopping-sessions-table-events td:nth-child(3) { width: 18%; min-width: 6rem; }
+.shopping-sessions-table-events th:nth-child(4),
+.shopping-sessions-table-events td:nth-child(4) { width: 22%; min-width: 8rem; }
+.shopping-sessions-table-events th:nth-child(5),
+.shopping-sessions-table-events td:nth-child(5) { width: 10%; min-width: 4rem; }
+.shopping-sessions-table-events th:nth-child(6),
+.shopping-sessions-table-events td:nth-child(6) { width: 8%; min-width: 4rem; }
+.shopping-sessions-table-events th:nth-child(7),
+.shopping-sessions-table-events td:nth-child(7) { width: 10%; min-width: 4rem; }
+.shopping-sessions-table-events th:nth-child(8),
+.shopping-sessions-table-events td:nth-child(8) { width: 5%; min-width: 2.5rem; }
+.shopping-sessions-table-events th:nth-child(9),
+.shopping-sessions-table-events td:nth-child(9) { width: 5%; min-width: 2.5rem; }
+.shopping-sessions-table-events th:nth-child(10),
+.shopping-sessions-table-events td:nth-child(10) { width: 6%; min-width: 3rem; }
+
+.shopping-sessions-table-events .shopping-sessions-page-cell {
+  max-width: 0;
+  min-width: 8rem;
+}
+
+.shopping-sessions-page-title,
+.shopping-sessions-page-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 
 .shopping-sessions-page-title {
   font-weight: 500;
   color: #111827;
-  margin-bottom: 0.25rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-bottom: 0.15rem;
 }
 
 .shopping-sessions-page-path {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: #6b7280;
+}
+
+.shopping-sessions-table-events td:nth-child(3) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 0;
 }
 
 .shopping-sessions-empty {

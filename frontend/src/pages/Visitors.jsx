@@ -1056,7 +1056,7 @@ const Visitors = () => {
           <h2 className="overview-top-pages-title">Traffic</h2>
           {trafficBySource.sourceOrder.length > 0 && (
             <div className="trend-bars-legend">
-              {trafficBySource.sourceOrder.slice(0, 3).map((src) => (
+              {trafficBySource.sourceOrder.slice(0, 5).map((src) => (
                 <span key={src} className="trend-bars-legend-item">
                   <span className="trend-bars-legend-dot" style={{ backgroundColor: trafficBySource.getSourceColor(src) }} />
                   <span className="trend-bars-legend-label">{src}</span>
@@ -1074,7 +1074,7 @@ const Visitors = () => {
               {/* Y-axis labels */}
               <div className="y-axis">
                 {(() => {
-                  const maxTotal = 100;
+                  const maxTotal = 300;
                   const minTotal = 0;
                   const range = maxTotal - minTotal;
                   const steps = 5;
@@ -1102,7 +1102,7 @@ const Visitors = () => {
                 {/* Stacked Bars (by source when available, else new/returning) */}
                 <div className="trend-bars">
                   {(() => {
-                    const maxTotal = 100;
+                    const maxTotal = 300;
                     const { byDate: sourceByDate, sourceOrder, getSourceColor } = trafficBySource;
                     const hasSourceData = Object.keys(sourceByDate).length > 0;
                     return dailyTrends.slice(-30).map((day, index) => {

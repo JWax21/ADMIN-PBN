@@ -68,7 +68,14 @@ const ShoppingSessions = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
-    const date = new Date(dateString.replace(/-/g, "/"));
+    let normalized = dateString;
+    if (/^\d{8}$/.test(dateString)) {
+      normalized = `${dateString.slice(0, 4)}-${dateString.slice(4, 6)}-${dateString.slice(6, 8)}`;
+    } else {
+      normalized = dateString.replace(/-/g, "/");
+    }
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) return "N/A";
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -237,7 +244,7 @@ const ShoppingSessions = () => {
         <div className="shopping-sessions-content">
           {activeTab === "events" && (
             <div className="shopping-sessions-table-container">
-              <table className="shopping-sessions-table">
+              <table className="shopping-sessions-table shopping-sessions-table-events">
                 <thead>
                   <tr>
                     <th>Date</th>
