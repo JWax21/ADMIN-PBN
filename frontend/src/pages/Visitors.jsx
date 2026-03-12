@@ -49,6 +49,14 @@ const Visitors = () => {
   const [topPagesLoading, setTopPagesLoading] = useState(false);
   const [overviewDailySources, setOverviewDailySources] = useState(null);
   const [overviewDailySourcesLoading, setOverviewDailySourcesLoading] = useState(false);
+  const [overviewByCountry, setOverviewByCountry] = useState(null);
+  const [overviewByLandingPage, setOverviewByLandingPage] = useState(null);
+  const [overviewByHour, setOverviewByHour] = useState(null);
+  const [overviewByDuration, setOverviewByDuration] = useState(null);
+  const [hoveredBarGeo, setHoveredBarGeo] = useState(null);
+  const [hoveredBarDuration, setHoveredBarDuration] = useState(null);
+  const [hoveredBarLanding, setHoveredBarLanding] = useState(null);
+  const [hoveredBarHour, setHoveredBarHour] = useState(null);
 
   /** Map GA source strings to a canonical name for chart/legend (dedupe e.g. chatgpt.com + openai → ChatGPT). */
   const getCanonicalSource = (raw) => {
@@ -176,6 +184,22 @@ const Visitors = () => {
       })
       .catch(() => setOverviewDailySources(null))
       .finally(() => setOverviewDailySourcesLoading(false));
+  }, [visitorsView, dateRange]);
+
+  useEffect(() => {
+    if (visitorsView !== "overview") return;
+    const params = { startDate: dateRange, endDate: "today" };
+    Promise.all([
+      apiClient.get("/api/analytics/daily-traffic-by-country", { params }).then((r) => r.data.success ? r.data.data : null).catch(() => null),
+      apiClient.get("/api/analytics/daily-traffic-by-landing-page", { params }).then((r) => r.data.success ? r.data.data : null).catch(() => null),
+      apiClient.get("/api/analytics/daily-traffic-by-hour", { params }).then((r) => r.data.success ? r.data.data : null).catch(() => null),
+      apiClient.get("/api/analytics/daily-traffic-by-duration", { params }).then((r) => r.data.success ? r.data.data : null).catch(() => null),
+    ]).then(([country, landing, hour, duration]) => {
+      setOverviewByCountry(country);
+      setOverviewByLandingPage(landing);
+      setOverviewByHour(hour);
+      setOverviewByDuration(duration);
+    });
   }, [visitorsView, dateRange]);
 
   const fetchTopPages = async () => {
@@ -340,6 +364,25 @@ const Visitors = () => {
     const getSourceColor = (source) => colors[sourceOrder.indexOf(source) % colors.length];
     return { byDate, sourceOrder, getSourceColor };
   }, [overviewDailySources]);
+
+  const buildSegmentData = (dailyData) => {
+    const daily = dailyData?.daily || [];
+    const byDate = Object.fromEntries(daily.map((d) => [d.date, d]));
+    const allNames = [...new Set(daily.flatMap((d) => (d.sources || []).map((s) => s.source)))];
+    const segmentOrder = allNames.sort((a, b) => {
+      const totalA = daily.reduce((sum, d) => sum + (d.sources?.find((s) => s.source === a)?.sessions || 0), 0);
+      const totalB = daily.reduce((sum, d) => sum + (d.sources?.find((s) => s.source === b)?.sessions || 0), 0);
+      return totalB - totalA;
+    });
+    const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+    const getColor = (name) => colors[segmentOrder.indexOf(name) % colors.length];
+    return { byDate, segmentOrder, getColor };
+  };
+
+  const overviewByCountrySegments = useMemo(() => buildSegmentData(overviewByCountry), [overviewByCountry]);
+  const overviewByLandingSegments = useMemo(() => buildSegmentData(overviewByLandingPage), [overviewByLandingPage]);
+  const overviewByHourSegments = useMemo(() => buildSegmentData(overviewByHour), [overviewByHour]);
+  const overviewByDurationSegments = useMemo(() => buildSegmentData(overviewByDuration), [overviewByDuration]);
 
   useEffect(() => {
     const el = lineChartContainerRef.current;
@@ -1167,49 +1210,7 @@ const Visitors = () => {
                                   />
                                 )}
                               </>
-                            )}
-                            {hoveredBar === index && (
-                              <div className="bar-tooltip">
-                                <div className="tooltip-header">
-                                  <div className="tooltip-day-name">{getDayOfWeek(day.date)}</div>
-                                  <div className="tooltip-date">{formatDate(day.date)}</div>
-                                </div>
-                                <div className="tooltip-divider"></div>
-                                {useSources && daySource?.sources?.length ? (
-                                  <>
-                                    {sourceOrder.map((src) => {
-                                      const sessions = daySource.sources.find((s) => s.source === src)?.sessions || 0;
-                                      if (sessions === 0) return null;
-                                      return (
-                                        <div key={src} className="tooltip-value">
-                                          <span className="tooltip-label">{src}</span>
-                                          <span className="tooltip-number">{formatNumber(sessions)}</span>
-                                        </div>
-                                      );
-                                    })}
-                                    <div className="tooltip-value total">
-                                      <span className="tooltip-label">Total</span>
-                                      <span className="tooltip-number">{formatNumber(daySource.totalSessions || 0)}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="tooltip-value tooltip-new">
-                                      <span className="tooltip-label">New</span>
-                                      <span className="tooltip-number">{formatNumber(day.new)}</span>
-                                    </div>
-                                    <div className="tooltip-value tooltip-returning">
-                                      <span className="tooltip-label">Returning</span>
-                                      <span className="tooltip-number">{formatNumber(day.returning)}</span>
-                                    </div>
-                                    <div className="tooltip-value total">
-                                      <span className="tooltip-label">Total</span>
-                                      <span className="tooltip-number">{formatNumber(day.total)}</span>
-                                    </div>
-                                  </>
                                 )}
-                              </div>
-                            )}
                           </div>
                           {index % 5 === 0 && (
                             <span className="trend-label">{formatDate(day.date)}</span>
@@ -1219,6 +1220,58 @@ const Visitors = () => {
                     });
                   })()}
                 </div>
+                {/* Traffic bar tooltip fixed to top right */}
+                {hoveredBar != null && (() => {
+                  const bars = dailyTrends.slice(-30);
+                  const day = bars[hoveredBar];
+                  if (!day) return null;
+                  const { byDate: sourceByDate, sourceOrder } = trafficBySource;
+                  const hasSourceData = Object.keys(sourceByDate).length > 0;
+                  const daySource = sourceByDate[day.date];
+                  const useSources = hasSourceData && daySource?.sources?.length;
+                  return (
+                    <div className="bar-tooltip bar-tooltip-top-right">
+                      <div className="tooltip-header">
+                        <div className="tooltip-day-name">{getDayOfWeek(day.date)}</div>
+                        <div className="tooltip-date">{formatDate(day.date)}</div>
+                      </div>
+                      <div className="tooltip-divider"></div>
+                      {useSources && daySource?.sources?.length ? (
+                        <>
+                          {sourceOrder.map((src) => {
+                            const sessions = daySource.sources.find((s) => s.source === src)?.sessions || 0;
+                            if (sessions === 0) return null;
+                            return (
+                              <div key={src} className="tooltip-value">
+                                <span className="tooltip-label">{src}</span>
+                                <span className="tooltip-number">{formatNumber(sessions)}</span>
+                              </div>
+                            );
+                          })}
+                          <div className="tooltip-value total">
+                            <span className="tooltip-label">Total</span>
+                            <span className="tooltip-number">{formatNumber(daySource.totalSessions || 0)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="tooltip-value tooltip-new">
+                            <span className="tooltip-label">New</span>
+                            <span className="tooltip-number">{formatNumber(day.new)}</span>
+                          </div>
+                          <div className="tooltip-value tooltip-returning">
+                            <span className="tooltip-label">Returning</span>
+                            <span className="tooltip-number">{formatNumber(day.returning)}</span>
+                          </div>
+                          <div className="tooltip-value total">
+                            <span className="tooltip-label">Total</span>
+                            <span className="tooltip-number">{formatNumber(day.total)}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ) : (
@@ -1426,6 +1479,135 @@ const Visitors = () => {
         )}
       </div>
 
+      </div>
+
+      {/* Second row: Geography, Duration, First page, Time of day (same style as Traffic) */}
+      <div className="overview-chart-row overview-chart-row-four">
+        {[
+          { title: "Geography", data: overviewByCountrySegments, hovered: hoveredBarGeo, setHovered: setHoveredBarGeo },
+          { title: "Duration", data: overviewByDurationSegments, hovered: hoveredBarDuration, setHovered: setHoveredBarDuration },
+          { title: "First page", data: overviewByLandingSegments, hovered: hoveredBarLanding, setHovered: setHoveredBarLanding },
+          { title: "Time of day", data: overviewByHourSegments, hovered: hoveredBarHour, setHovered: setHoveredBarHour },
+        ].map(({ title, data, hovered, setHovered }) => (
+          <div key={title} className="card overview-stacked-bar-card">
+            <div className="overview-traffic-card-header">
+              <h2 className="overview-top-pages-title">{title}</h2>
+              {data.segmentOrder.length > 0 && (
+                <div className="trend-bars-legend">
+                  {data.segmentOrder.slice(0, 5).map((name) => (
+                    <span key={name} className="trend-bars-legend-item">
+                      <span className="trend-bars-legend-dot" style={{ backgroundColor: data.getColor(name) }} />
+                      <span className="trend-bars-legend-label" title={name}>{name.length > 12 ? name.slice(0, 11) + "…" : name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="trend-card-inner trend-card-inner-bar overview-stacked-bar-only">
+              <div className="trend-chart">
+                {dailyTrends.length > 0 ? (
+                  <div className="trend-chart-container">
+                    <div className="y-axis">
+                      {(() => {
+                        const maxTotal = 300;
+                        const steps = 5;
+                        const stepValue = Math.ceil(maxTotal / steps);
+                        return Array.from({ length: steps + 1 }, (_, i) => (
+                          <div key={i} className="y-axis-label">{formatNumber(maxTotal - stepValue * i)}</div>
+                        ));
+                      })()}
+                    </div>
+                    <div className="chart-area">
+                      <div className="grid-lines">
+                        {Array.from({ length: 6 }, (_, i) => <div key={i} className="grid-line" />)}
+                      </div>
+                      <div className="trend-bars">
+                        {dailyTrends.slice(-30).map((day, index) => {
+                          const dayData = data.byDate[day.date];
+                          const useSegments = dayData?.sources?.length;
+                          const total = useSegments ? (dayData.totalSessions || 0) : day.total;
+                          const totalBarHeight = Math.min(100, (total / 300) * 100);
+                          return (
+                            <div
+                              key={index}
+                              className="trend-bar-container"
+                              onMouseEnter={() => setHovered(index)}
+                              onMouseLeave={() => setHovered(null)}
+                            >
+                              <div className="trend-bar-stacked" style={{ height: `${totalBarHeight}%` }}>
+                                {useSegments && dayData.sources.length > 0 ? (
+                                  data.segmentOrder.map((name) => {
+                                    const sessions = dayData.sources.find((s) => s.source === name)?.sessions || 0;
+                                    const dayTotal = dayData.totalSessions || 1;
+                                    const pct = (sessions / dayTotal) * 100;
+                                    if (pct <= 0) return null;
+                                    return (
+                                      <div
+                                        key={name}
+                                        className="trend-bar-segment trend-bar-segment-source"
+                                        style={{ height: `${pct}%`, minHeight: "2px", backgroundColor: data.getColor(name) }}
+                                      />
+                                    );
+                                  })
+                                ) : (
+                                  <div className="trend-bar-segment new" style={{ height: "100%", minHeight: "2px" }} />
+                                )}
+                              </div>
+                              {index % 5 === 0 && <span className="trend-label">{formatDate(day.date)}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {hovered != null && (() => {
+                        const bars = dailyTrends.slice(-30);
+                        const day = bars[hovered];
+                        if (!day) return null;
+                        const dayData = data.byDate[day.date];
+                        const useSegments = dayData?.sources?.length;
+                        return (
+                          <div className="bar-tooltip bar-tooltip-top-right">
+                            <div className="tooltip-header">
+                              <div className="tooltip-day-name">{getDayOfWeek(day.date)}</div>
+                              <div className="tooltip-date">{formatDate(day.date)}</div>
+                            </div>
+                            <div className="tooltip-divider" />
+                            {useSegments && dayData.sources.length > 0 ? (
+                              <>
+                                {data.segmentOrder.map((name) => {
+                                  const sessions = dayData.sources.find((s) => s.source === name)?.sessions || 0;
+                                  if (sessions === 0) return null;
+                                  return (
+                                    <div key={name} className="tooltip-value">
+                                      <span className="tooltip-label" title={name}>{name.length > 18 ? name.slice(0, 17) + "…" : name}</span>
+                                      <span className="tooltip-number">{formatNumber(sessions)}</span>
+                                    </div>
+                                  );
+                                })}
+                                <div className="tooltip-value total">
+                                  <span className="tooltip-label">Total</span>
+                                  <span className="tooltip-number">{formatNumber(dayData.totalSessions || 0)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="tooltip-value total">
+                                  <span className="tooltip-label">Total</span>
+                                  <span className="tooltip-number">{formatNumber(day.total)}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="no-data">No data available</div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Overview: Geography, Device, Time Analysis */}

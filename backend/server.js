@@ -15,6 +15,10 @@ import {
   getTrafficSources,
   getSourceAnalysis,
   getDailyTrafficBySource,
+  getDailyTrafficByCountry,
+  getDailyTrafficByLandingPage,
+  getDailyTrafficByHour,
+  getDailyTrafficByDuration,
   getDailyTrend,
 } from "./services/googleAnalytics.js";
 import {
@@ -474,6 +478,51 @@ app.get("/api/analytics/daily-traffic-by-source", async (req, res) => {
       success: false,
       error: error.message,
     });
+  }
+});
+
+// Daily traffic by dimension (same shape as by-source) for overview stacked bar charts
+app.get("/api/analytics/daily-traffic-by-country", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const data = await getDailyTrafficByCountry(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching daily traffic by country:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/analytics/daily-traffic-by-landing-page", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const data = await getDailyTrafficByLandingPage(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching daily traffic by landing page:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/analytics/daily-traffic-by-hour", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const data = await getDailyTrafficByHour(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching daily traffic by hour:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/analytics/daily-traffic-by-duration", async (req, res) => {
+  try {
+    const { startDate = "30daysAgo", endDate = "today" } = req.query;
+    const data = await getDailyTrafficByDuration(startDate, endDate);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error("Error fetching daily traffic by duration:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

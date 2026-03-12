@@ -202,6 +202,42 @@
   height: 372px;
 }
 
+.overview-chart-row-four {
+  height: auto;
+  min-height: 220px;
+}
+
+.overview-chart-row-four .overview-stacked-bar-card {
+  flex: 1 1 25%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 0.75rem !important;
+  overflow: visible;
+}
+
+.overview-stacked-bar-card .overview-traffic-card-header {
+  flex-shrink: 0;
+}
+
+.overview-stacked-bar-card .overview-stacked-bar-only.trend-card-inner-bar {
+  flex: 1;
+  min-height: 0;
+  padding-top: 8px;
+  overflow: visible;
+}
+
+.overview-stacked-bar-card .overview-stacked-bar-only .trend-chart {
+  height: 100%;
+  min-height: 120px;
+}
+
+.overview-stacked-bar-card .trend-bars-legend-label {
+  max-width: 4.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .overview-combined-charts-card {
   flex: 0 0 50%;
   width: 50%;
@@ -1230,6 +1266,62 @@
   transform: translateX(-50%);
   border: 5px solid transparent;
   border-top-color: #ffffff;
+}
+
+/* Traffic bar chart: lock tooltip to top right so it doesn't cover the legend */
+/* Traffic bar tooltip locked to top-right: compact so it fits in chart */
+.bar-tooltip-top-right {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.7rem;
+  min-width: 100px;
+  border-radius: 0.35rem;
+}
+
+.bar-tooltip-top-right::after {
+  display: none;
+}
+
+.bar-tooltip-top-right .tooltip-header {
+  margin-bottom: 0.2rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.bar-tooltip-top-right .tooltip-day-name,
+.bar-tooltip-top-right .tooltip-date {
+  font-size: 0.6rem;
+}
+
+.bar-tooltip-top-right .tooltip-divider {
+  margin-bottom: 0.2rem;
+}
+
+.bar-tooltip-top-right .tooltip-value {
+  margin-top: 0.15rem;
+  font-size: 0.65rem;
+}
+
+.bar-tooltip-top-right .tooltip-value.total {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  font-size: 0.7rem;
+}
+
+.bar-tooltip-top-right .tooltip-label {
+  font-size: 0.65rem;
+}
+
+.bar-tooltip-top-right .tooltip-value.tooltip-new,
+.bar-tooltip-top-right .tooltip-value.tooltip-returning {
+  padding: 0.2rem 0.35rem;
 }
 
 .tooltip-header {

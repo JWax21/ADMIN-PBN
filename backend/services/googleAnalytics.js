@@ -504,6 +504,121 @@ export const getDailyTrafficBySource = async (
 };
 
 /**
+ * Get daily traffic broken down by a dimension (same shape as getDailyTrafficBySource).
+ * @param {string} dimensionName - GA4 dimension name (e.g. "country", "landingPage", "hour")
+ * @param {string} startDate - e.g. 30daysAgo
+ * @param {string} endDate - e.g. today
+ * @param {{ formatLabel?: (value: string) => string }} options - optional label formatter
+ * @returns {{ daily: Array<{ date: string, sources: Array<{ source: string, sessions: number }>, totalSessions: number }> }}
+ */
+export const getDailyTrafficByDimension = async (
+  dimensionName,
+  startDate = "30daysAgo",
+  endDate = "today",
+  options = {}
+) => {
+  if (!analyticsDataClient) {
+    throw new Error("Analytics client not initialized");
+  }
+  const propertyId = process.env.GA_PROPERTY_ID;
+  const formatLabel = options.formatLabel || ((v) => v);
+  try {
+    const response = await analyticsDataClient.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate, endDate }],
+        dimensions: [{ name: "date" }, { name: dimensionName }],
+        metrics: [{ name: "sessions" }],
+        orderBys: [
+          { dimension: { dimensionName: "date" }, desc: false },
+          { metric: { metricName: "sessions" }, desc: true },
+        ],
+        limit: 10000,
+      },
+    });
+
+    const rows = response.data.rows || [];
+    const byDate = {};
+    rows.forEach((row) => {
+      const date = row.dimensionValues[0].value;
+      const dimValue = row.dimensionValues[1].value ?? "(not set)";
+      const sessions = parseInt(row.metricValues[0].value, 10);
+      const label = formatLabel(dimValue);
+      if (!byDate[date]) byDate[date] = {};
+      byDate[date][label] = (byDate[date][label] || 0) + sessions;
+    });
+
+    const daily = Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, sourceCounts]) => {
+        const sources = Object.entries(sourceCounts).map(([source, sessions]) => ({ source, sessions }));
+        const totalSessions = sources.reduce((sum, x) => sum + x.sessions, 0);
+        return { date, sources, totalSessions };
+      });
+
+    return { daily };
+  } catch (error) {
+    console.error(`Error fetching daily traffic by ${dimensionName}:`, error);
+    throw error;
+  }
+};
+
+/** Format hour dimension "0"-"23" to "12am", "1am", ... "11pm" */
+const formatHourLabel = (hourStr) => {
+  const h = parseInt(hourStr, 10);
+  if (Number.isNaN(h) || h < 0 || h > 23) return hourStr;
+  if (h === 0) return "12am";
+  if (h < 12) return `${h}am`;
+  if (h === 12) return "12pm";
+  return `${h - 12}pm`;
+};
+
+/** Bucket engagement time into duration labels (GA4 may return seconds or milliseconds) */
+const bucketDurationLabel = (value) => {
+  let sec = parseInt(value, 10);
+  if (Number.isNaN(sec)) return value;
+  if (sec > 10000) sec = Math.round(sec / 1000);
+  if (sec < 30) return "0–30s";
+  if (sec < 120) return "30s–2m";
+  if (sec < 300) return "2m–5m";
+  return "5m+";
+};
+
+/**
+ * Get daily traffic by country (geography). Uses same response shape as daily-traffic-by-source.
+ */
+export const getDailyTrafficByCountry = (startDate, endDate) =>
+  getDailyTrafficByDimension("country", startDate, endDate);
+
+/**
+ * Get daily traffic by landing page (first page visited).
+ */
+export const getDailyTrafficByLandingPage = (startDate, endDate) =>
+  getDailyTrafficByDimension("landingPage", startDate, endDate);
+
+/**
+ * Get daily traffic by hour of day (0-23 formatted as 12am, 1am, ...).
+ */
+export const getDailyTrafficByHour = (startDate, endDate) =>
+  getDailyTrafficByDimension("hour", startDate, endDate, { formatLabel: formatHourLabel });
+
+/**
+ * Get daily traffic by session engagement duration bucket (0–30s, 30s–2m, 2m–5m, 5m+).
+ * Uses sessionEngagementDuration dimension (seconds) and buckets in code if needed.
+ */
+export const getDailyTrafficByDuration = async (startDate = "30daysAgo", endDate = "today") => {
+  try {
+    const raw = await getDailyTrafficByDimension("sessionEngagementDuration", startDate, endDate, {
+      formatLabel: bucketDurationLabel,
+    });
+    return raw;
+  } catch (err) {
+    console.warn("sessionEngagementDuration dimension not available, returning empty duration breakdown:", err.message);
+    return { daily: [] };
+  }
+};
+
+/**
  * Map sourceId (UI) to GA4 dimension filter for sessionSource.
  * Returns a FilterExpression for runReport dimensionFilter, or null if no filter.
  */
